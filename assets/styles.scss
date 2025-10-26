@@ -1,0 +1,81 @@
+@import "../assets_src/custom";
+@import "../assets_src/bootstrap/bootstrap";
+
+@import "../assets_src/dropdown-select";
+
+body {
+  --bs-body-bg: #17203D;
+  --bs-body-color: #fff;
+  --bs-body-font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --bs-body-font-size: 1.25rem;
+  --bs-tertiary-bg: #917777;
+  --bs-secondary-color: rgba(255, 255, 255, 0.5);
+  --bs-secondary-bg: #777777;
+
+  --bs-primary: #a8469f;
+  --bs-success-rgb: 45, 182, 114;
+}
+
+.form-check-input:checked {
+  background-color: #fff;
+  border-color: #000;
+
+  --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23000'/%3e%3c/svg%3e") !important;
+}
+
+.form-check-input:checked[type="checkbox"] {
+  --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23000' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e");
+}
+
+.form-switch .form-check-input {
+  cursor: pointer;
+}
+
+.form-switch .form-check-input:focus,
+.form-switch .form-check-input {
+  --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23fff'/%3e%3c/svg%3e");
+}
+
+form {
+  background: #2d3642;
+  margin: 1rem 0;
+  padding: 1rem;
+  border-radius: 1rem;
+}
+
+
+.tag {
+  background: white;
+  border-radius: 1em;
+  padding: 0.15rem 0.25rem;
+  font-size: 0.7rem;
+  color: black;
+  font-weight: bold;
+  font-family: monospace;
+}
+
+.screenshot {
+  object-fit: cover;
+  height: 100px;
+}
+
+.btn-primary {
+  --bs-btn-color: #fff;
+  --bs-btn-bg: #a8469f;
+  --bs-btn-border-color: #a8469f;
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: #bc5bb3;
+  --bs-btn-hover-border-color: #a8469f;
+  --bs-btn-focus-shadow-rgb: 49,132,253;
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: #b646ac;
+  --bs-btn-active-border-color: #b847ae;
+  --bs-btn-active-shadow: inset 0 3px 5px rgba(0, 0, 0, 0.125);
+  --bs-btn-disabled-color: #fff;
+  --bs-btn-disabled-bg: #60385c;
+  --bs-btn-disabled-border-color: #60385c;
+}
+
+.row {
+  --bs-gutter-x: 0;
+}

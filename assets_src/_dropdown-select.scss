@@ -1,0 +1,31 @@
+.dropdown-menu.multiselect-container {
+  min-width: 100%;
+  max-height: 15rem;
+  overflow-y: auto;
+  border-radius: 0.375rem;
+  box-shadow: 0 .5rem 1rem rgba(0,0,0,.15);
+}
+
+.multiselect-container .dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .4rem 1rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.multiselect-container .dropdown-item:hover,
+.multiselect-container .dropdown-item:focus {
+  background-color: var(--bs-dropdown-link-hover-bg);
+}
+
+.multiselect-container input[type="checkbox"] {
+  margin-top: 0;
+  flex-shrink: 0;
+}
+
+/* Prevent dropdown from closing when clicking inside */
+.dropdown-menu[data-bs-auto-close="outside"] {
+  pointer-events: auto;
+}

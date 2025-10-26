@@ -1,0 +1,6 @@
+<div class="d-flex gap-2" id="tags">
+    {{range .tags}}
+        <input type="checkbox" class="btn-check" id="tags-{{.}}" name="tags[]" value="{{.}}" autocomplete="off">
+        <label class="btn btn-outline-light btn-sm" for="tags-{{.}}">{{.}}</label>
+    {{end}}
+</div>
