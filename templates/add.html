@@ -19,6 +19,45 @@
                     exits: {{ if .trade }}{{ toJSON .trade.Exits }}{{ else }}[]{{ end }},
                     addExit() { this.exits.push({ date: "", price: "", qty: "" }); },
                     removeExit(i) { this.exits.splice(i, 1); },
+
+                    accountSize: {{ .accountSize }},
+                    traded: {{ if .trade }}{{ toJSON .trade.Traded }}{{ else }}""{{ end }},
+                    entryPrice: {{ if .trade }}{{ .trade.EntryPrice }}{{ else }}0{{ end }},
+                    stopLoss: {{ if .trade }}{{ .trade.StopLoss }}{{ else }}0{{ end }},
+                    quantity: {{ if .trade }}{{ .trade.Quantity }}{{ else }}0{{ end }},
+                    positionValue: {{ if .trade }}{{ .trade.PositionValue }}{{ else }}0{{ end }},
+
+                    syncFromQty() {
+                        if (this.entryPrice > 0) this.positionValue = +(this.quantity * this.entryPrice).toFixed(2);
+                    },
+                    syncFromValue() {
+                        if (this.entryPrice > 0) this.quantity = +(this.positionValue / this.entryPrice).toFixed(8);
+                    },
+                    onEntryChange() {
+                        // Entry hat sich geändert: Positionswert aus Stückzahl neu ableiten (Menge bleibt führend)
+                        if (this.quantity > 0) this.syncFromQty();
+                        else this.syncFromValue();
+                    },
+                    get effectiveQty() {
+                        if (this.quantity > 0) return this.quantity;
+                        if (this.positionValue > 0 && this.entryPrice > 0) return this.positionValue / this.entryPrice;
+                        return 0;
+                    },
+                    get signedDiff() {
+                        // positiv = Stop in Verlustrichtung; negativ = Stop im Gewinn
+                        return this.traded === "short"
+                            ? this.stopLoss - this.entryPrice
+                            : this.entryPrice - this.stopLoss;
+                    },
+                    get riskAmount() {
+                        const q = this.effectiveQty;
+                        if (q <= 0 || this.entryPrice <= 0 || this.stopLoss <= 0) return 0;
+                        return q * this.signedDiff;
+                    },
+                    get riskPercent() {
+                        if (this.accountSize <= 0) return 0;
+                        return this.riskAmount / this.accountSize * 100;
+                    },
             }'
 >
     <form
@@ -45,7 +84,7 @@
         <!-- Traded -->
         <div class="mt-2">
             <label for="traded">Trade</label>
-            <select id="traded" name="traded" class="form-select" required>
+            <select id="traded" name="traded" class="form-select" required x-model="traded">
                 <option value="" {{ if not .trade }}selected{{ end }}>-- Bitte ausfüllen --</option>
                 <option value="skip"  {{ if and .trade (eq .trade.Traded "skip") }}selected{{ end }}>Skip</option>
                 <option value="long"  {{ if and .trade (eq .trade.Traded "long") }}selected{{ end }}>Long</option>
@@ -70,14 +109,52 @@
                 <label for="entryPrice">Entry Preis</label>
                 <input name="entryPrice" id="entryPrice" class="form-control"
                        type="number" step="any" min="0"
-                       {{ if .trade }}value="{{.trade.EntryPrice}}"{{ end }}>
+                       x-model.number="entryPrice" @input="onEntryChange()">
             </div>
             <div class="col-6">
                 <label for="stopLoss">Stoploss Preis</label>
                 <input name="stopLoss" id="stopLoss" class="form-control"
                        type="number" step="any" min="0"
-                       {{ if .trade }}value="{{.trade.StopLoss}}"{{ end }}>
+                       x-model.number="stopLoss">
             </div>
+        </div>
+
+        <!-- Positionsgröße: Stückzahl ODER Positionswert (eines reicht) -->
+        <div class="row mt-2">
+            <div class="col-6">
+                <label for="quantity">Stückzahl (Units)</label>
+                <input name="quantity" id="quantity" class="form-control"
+                       type="number" step="any" min="0" placeholder="z.B. 0.5 BTC / 100 Aktien"
+                       x-model.number="quantity" @input="syncFromQty()">
+            </div>
+            <div class="col-6">
+                <label for="positionValue">Positionswert (Notional)</label>
+                <input name="positionValue" id="positionValue" class="form-control"
+                       type="number" step="any" min="0" placeholder="Gesamt-Exposure in Kontowährung"
+                       x-model.number="positionValue" @input="syncFromValue()">
+            </div>
+        </div>
+
+        <!-- Live-Risiko-Vorschau -->
+        <div class="mt-2 p-2 border border-secondary rounded-2" x-show="riskAmount != 0">
+            <template x-if="riskAmount > 0">
+                <span>
+                    Geschätztes Risiko:
+                    <b x-text="riskAmount.toFixed(2)"></b> &euro;
+                    <template x-if="accountSize > 0">
+                        <span>(<b x-text="riskPercent.toFixed(2)"></b> % vom Konto)</span>
+                    </template>
+                    <template x-if="accountSize <= 0">
+                        <span class="text-secondary">— Kontogröße auf der Startseite setzen für %-Anzeige</span>
+                    </template>
+                </span>
+            </template>
+            <template x-if="riskAmount < 0">
+                <span class="text-success">
+                    Kein Risiko — Stop liegt im Gewinn (gesicherter Gewinn:
+                    <b x-text="(-riskAmount).toFixed(2)"></b> &euro;<template x-if="accountSize > 0"><span>, <b x-text="(-riskPercent).toFixed(2)"></b> % freies Risiko-Budget</span></template>)
+                </span>
+            </template>
         </div>
 
         <!-- Exits -->

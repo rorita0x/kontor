@@ -66,20 +66,62 @@ type Trade struct {
 	Traded Traded      `form:"traded" binding:"required"`
 	Result TradeResult `form:"result" binding:"required"`
 
-	EntryPrice F32    `form:"entryPrice" json:"entryPrice"`
-	StopLoss   F32    `form:"stopLoss" json:"stopLoss"`
-	Exits      []Exit `json:"exits"`
+	EntryPrice    F32    `form:"entryPrice" json:"entryPrice"`
+	StopLoss      F32    `form:"stopLoss" json:"stopLoss"`
+	Quantity      F32    `form:"quantity" json:"quantity"`
+	PositionValue F32    `form:"positionValue" json:"positionValue"`
+	Exits         []Exit `json:"exits"`
 }
 
+// signedDiff ist der richtungsabhängige Kursabstand vom Entry zum Stop-Loss.
+// Positiv = Stop liegt in Verlustrichtung (echtes Risiko); negativ = Stop liegt
+// in Gewinnrichtung (gesicherter Gewinn, kein Risiko). Bei Short ist die
+// Verlustrichtung nach oben, bei Long (und sonst) nach unten.
+func (t Trade) signedDiff() F32 {
+	if t.Traded == TRADED_SHORT {
+		return t.StopLoss - t.EntryPrice
+	}
+	return t.EntryPrice - t.StopLoss
+}
+
+// RiskFromSL liefert den richtungsabhängigen Kursabstand vom Entry zum Stop-Loss
+// in Prozent. Das ist NICHT das Konto-Risiko, sondern nur der SL-Abstand.
+// Negativ, wenn der Stop bereits im Gewinn liegt.
 func (t Trade) RiskFromSL() F32 {
 	if t.EntryPrice <= 0 || t.StopLoss <= 0 {
 		return 0
 	}
-	diff := t.EntryPrice - t.StopLoss
-	if diff < 0 {
-		diff = -diff
+	return t.signedDiff() / t.EntryPrice * 100
+}
+
+// EffectiveQty vereinheitlicht die beiden Eingabewege: bevorzugt die direkt
+// eingegebene Stückzahl, sonst wird sie aus dem Positionswert und dem Entry abgeleitet.
+func (t Trade) EffectiveQty() F32 {
+	if t.Quantity > 0 {
+		return t.Quantity
 	}
-	return diff / t.EntryPrice * 100
+	if t.PositionValue > 0 && t.EntryPrice > 0 {
+		return t.PositionValue / t.EntryPrice
+	}
+	return 0
+}
+
+// RiskAmount ist das tatsächliche Risiko in Kontowährung: Stückzahl × Kursabstand,
+// richtungsabhängig. Negativ, wenn der Stop bereits im Gewinn liegt (kein Risiko).
+func (t Trade) RiskAmount() F32 {
+	qty := t.EffectiveQty()
+	if qty <= 0 || t.EntryPrice <= 0 || t.StopLoss <= 0 {
+		return 0
+	}
+	return qty * t.signedDiff()
+}
+
+// RiskPercent ist das Risiko als Anteil der Kontogröße in Prozent.
+func (t Trade) RiskPercent(accountSize F32) F32 {
+	if accountSize <= 0 {
+		return 0
+	}
+	return t.RiskAmount() / accountSize * 100
 }
 
 type Tag struct {
@@ -96,7 +138,14 @@ type AssetClass struct {
 }
 
 type ClassRiskSummary struct {
-	Class      string
-	TotalRisk  F32
-	TradeCount int
+	Class           string
+	TotalRisk       F32 // Summe der Konto-Risiko-Prozente
+	TotalRiskAmount F32 // Summe des Risikos in Kontowährung
+	TradeCount      int
+}
+
+// Settings hält globale Einstellungen. Es gibt genau einen Datensatz mit Pk = 1.
+type Settings struct {
+	Pk          int `storm:"id" form:"-"`
+	AccountSize F32 `form:"accountSize" json:"accountSize"`
 }

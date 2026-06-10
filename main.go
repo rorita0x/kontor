@@ -110,6 +110,14 @@ func main() {
 		}
 	}
 
+	// Globalen Settings-Datensatz (Pk = 1) anlegen, falls noch keiner existiert.
+	var settings src.Settings
+	if err = db.One("Pk", 1, &settings); err != nil {
+		if err = db.Save(&src.Settings{Pk: 1}); err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	r := gin.Default()
 
 	r.HTMLRender = loadTemplates()

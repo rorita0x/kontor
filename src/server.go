@@ -20,7 +20,17 @@ type Filter struct {
 	NeedsAllTags bool     `form:"needsAllTags"`
 }
 
-func computeClassRisk(trades []Trade, assets []Asset) []ClassRiskSummary {
+// loadSettings liest den globalen Settings-Datensatz (Pk = 1).
+// Existiert noch keiner, wird ein Default mit Kontogröße 0 zurückgegeben.
+func loadSettings(db *storm.DB) Settings {
+	var s Settings
+	if err := db.One("Pk", 1, &s); err != nil {
+		return Settings{Pk: 1}
+	}
+	return s
+}
+
+func computeClassRisk(trades []Trade, assets []Asset, accountSize F32) []ClassRiskSummary {
 	symbolToClass := make(map[string]string, len(assets))
 	for _, a := range assets {
 		symbolToClass[a.Symbol] = a.AssetClass
@@ -37,7 +47,8 @@ func computeClassRisk(trades []Trade, assets []Asset) []ClassRiskSummary {
 		}
 		s := classRisk[class]
 		s.Class = class
-		s.TotalRisk += t.RiskFromSL()
+		s.TotalRisk += t.RiskPercent(accountSize)
+		s.TotalRiskAmount += t.RiskAmount()
 		s.TradeCount++
 		classRisk[class] = s
 	}
@@ -82,11 +93,14 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			symbols = append(symbols, symbol.Symbol)
 		}
 
+		settings := loadSettings(db)
+
 		c.HTML(200, "index", gin.H{
-			"tags":      stringTags,
-			"symbols":   symbols,
-			"trades":    trades,
-			"classRisk": computeClassRisk(trades, assets),
+			"tags":        stringTags,
+			"symbols":     symbols,
+			"trades":      trades,
+			"classRisk":   computeClassRisk(trades, assets, settings.AccountSize),
+			"accountSize": settings.AccountSize,
 		})
 	})
 
@@ -156,12 +170,15 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			symbols = append(symbols, symbol.Symbol)
 		}
 
+		settings := loadSettings(db)
+
 		c.HTML(200, "index", gin.H{
-			"tags":      stringTags,
-			"symbols":   symbols,
-			"trades":    filteredTrades,
-			"filter":    filter,
-			"classRisk": computeClassRisk(trades, assets),
+			"tags":        stringTags,
+			"symbols":     symbols,
+			"trades":      filteredTrades,
+			"filter":      filter,
+			"classRisk":   computeClassRisk(trades, assets, settings.AccountSize),
+			"accountSize": settings.AccountSize,
 		})
 	})
 
@@ -206,6 +223,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"tags":         stringTags,
 			"symbols":      symbols,
 			"assetClasses": stringClasses,
+			"accountSize":  loadSettings(db).AccountSize,
 		})
 	})
 
@@ -261,7 +279,29 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"symbols":      symbols,
 			"assetClasses": stringClasses,
 			"trade":        trade,
+			"accountSize":  loadSettings(db).AccountSize,
 		})
+	})
+
+	r.POST("/settings", func(c *gin.Context) {
+		settings := loadSettings(db)
+
+		if err := c.ShouldBind(&settings); err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+		settings.Pk = 1
+
+		if err := db.Save(&settings); err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		if c.GetHeader("HX-Request") != "" {
+			c.JSON(200, settings)
+		} else {
+			c.Redirect(302, "/")
+		}
 	})
 
 	r.DELETE("/delete/:id", func(c *gin.Context) {

@@ -27,18 +27,32 @@
         ></iframe>
     </div>
 
+    <!-- Kontogröße -->
+    <form class="mb-3 p-3 border border-secondary rounded-2 d-flex align-items-end gap-2" method="POST" action="/settings">
+        <div>
+            <label for="accountSize" class="form-label mb-1"><b>Kontogröße (Portfolio)</b></label>
+            <input name="accountSize" id="accountSize" class="form-control"
+                   type="number" step="any" min="0" value="{{ .accountSize }}">
+        </div>
+        <button class="btn btn-light" type="submit">Speichern</button>
+        {{ if not .accountSize }}
+        <span class="text-warning align-self-center">Bitte setzen, damit Risiko-% berechnet werden kann.</span>
+        {{ end }}
+    </form>
+
     {{if .classRisk}}
     <div class="mb-3 p-3 border border-secondary rounded-2">
         <b>Offenes Risiko nach Asset-Klasse</b>
         <table class="table table-sm table-dark mt-2 mb-0">
             <thead>
-                <tr><th>Klasse</th><th>Trades</th><th>Gesamt Risiko %</th></tr>
+                <tr><th>Klasse</th><th>Trades</th><th>Risiko &euro;</th><th>Risiko %</th></tr>
             </thead>
             <tbody>
                 {{range .classRisk}}
                 <tr>
                     <td>{{.Class}}</td>
                     <td>{{.TradeCount}}</td>
+                    <td>{{.TotalRiskAmount}}</td>
                     <td>{{.TotalRisk}}%</td>
                 </tr>
                 {{end}}
@@ -162,9 +176,14 @@
                 <span class="d-block">
                     You chose <b class="text-uppercase">{{.Traded}}</b>
                 </span>
-                {{if .RiskFromSL}}
+                {{if .RiskAmount}}
                 <span class="d-block">
-                    Risiko: <b>{{.RiskFromSL}}%</b>
+                    Risiko: <b>{{.RiskAmount}} &euro;{{ if $.accountSize }} ({{.RiskPercent $.accountSize}}%){{ end }}</b>
+                </span>
+                {{end}}
+                {{if .RiskFromSL}}
+                <span class="d-block text-secondary" style="font-size:0.85em">
+                    SL-Abstand: {{.RiskFromSL}}%
                 </span>
                 {{end}}
                 {{if .EntryPrice}}
