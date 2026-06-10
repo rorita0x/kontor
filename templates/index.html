@@ -3,9 +3,52 @@
 {{define "content"}}
 <div class="container mt-5">
     <a class="btn btn-primary mb-2" href="/add">Create Entry</a>
+
+    <a  class="btn btn-success float-end mb-2"
+        data-fslightbox="info"
+        href="#links">
+        Help
+    </a>
+
+    <div style="display: none">
+        <div class="d-flex flex-column w-100" id="links">
+            Einfach durch scrollen ;D
+            <a data-fslightbox="info" href="/assets/images/cycle counts.png">Cycle Counts</a>
+            <a data-fslightbox="info" href="/assets/images/cycle terms.png">Cycle Terms</a>
+            <a data-fslightbox="info" href="#vimeo">Test</a>
+        </div>
+        <iframe
+                src="https://gin-gonic.com/en/docs/examples/param-in-path/"
+                id="vimeo"
+                width="1920px"
+                height="1080px"
+                frameBorder="0"
+                allow="autoplay; fullscreen"
+        ></iframe>
+    </div>
+
+    {{if .classRisk}}
+    <div class="mb-3 p-3 border border-secondary rounded-2">
+        <b>Offenes Risiko nach Asset-Klasse</b>
+        <table class="table table-sm table-dark mt-2 mb-0">
+            <thead>
+                <tr><th>Klasse</th><th>Trades</th><th>Gesamt Risiko %</th></tr>
+            </thead>
+            <tbody>
+                {{range .classRisk}}
+                <tr>
+                    <td>{{.Class}}</td>
+                    <td>{{.TradeCount}}</td>
+                    <td>{{.TotalRisk}}%</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+    {{end}}
+
     <form method="POST">
         <b>Filter</b>
-
 
         <div class="dropdown mb-2 mt-1">
             <button class="btn btn-light dropdown-toggle w-100 text-start" type="button"
@@ -23,7 +66,7 @@
                 {{range .symbols}}
                 <li>
                     <label class="dropdown-item">
-                        <input class="form-check-input" type="checkbox" name="symbols[]" value="{{.}}">
+                        <input class="form-check-input" type="checkbox" name="symbols[]" value="{{.}}" {{ if and $.filter (in $.filter.Assets .)}}checked{{end}}>
                         {{.}}
                     </label>
                 </li>
@@ -47,19 +90,19 @@
                     </li>
                     <li>
                         <label class="dropdown-item">
-                            <input class="form-check-input" type="checkbox" name="trade[]" value="skip">
+                            <input class="form-check-input" type="checkbox" name="trade[]" value="skip" {{ if and .filter (in .filter.Trades "skip")}}checked{{end}}>
                             Skip
                         </label>
                     </li>
                     <li>
                         <label class="dropdown-item">
-                            <input class="form-check-input" type="checkbox" name="trade[]" value="long">
+                            <input class="form-check-input" type="checkbox" name="trade[]" value="long" {{ if and .filter (in .filter.Trades "long")}}checked{{end}}>
                             Long
                         </label>
                     </li>
                     <li>
                         <label class="dropdown-item">
-                            <input class="form-check-input" type="checkbox" name="trade[]" value="short">
+                            <input class="form-check-input" type="checkbox" name="trade[]" value="short" {{ if and .filter (in .filter.Trades "short")}}checked{{end}}>
                             Short
                         </label>
                     </li>
@@ -67,13 +110,13 @@
             </div>
 
 
-            <div class="d-flex gap-4 align-items-center" x-data="{needsAllTags: false}">
+            <div class="d-flex gap-4 align-items-center" x-data="{needsAllTags: {{ if and .filter .filter.NeedsAllTags}}true{{else}}false{{end}} }">
                 <div class="form-check form-switch">
                     <label class="form-check-label" for="switchNeedsAllTags" x-text="needsAllTags ? 'Must have ALL selected Tags' : 'Must have ANY of the selected Tags'"></label>
                 </div>
 
                 <div class="form-check form-switch">
-                    <input x-model="needsAllTags" class="form-check-input" type="checkbox" role="switch" id="switchNeedsAllTags">
+                    <input x-model="needsAllTags" name="needsAllTags" value="1" class="form-check-input" type="checkbox" role="switch" id="switchNeedsAllTags">
                 </div>
             </div>
 
@@ -95,7 +138,7 @@
                 {{range .tags}}
                 <li>
                     <label class="dropdown-item">
-                        <input class="form-check-input" type="checkbox" name="trade[]" value="{{.}}">
+                        <input class="form-check-input" type="checkbox" name="tags[]" value="{{.}}" {{if and $.filter (in $.filter.Tags .)}}checked{{end}}>
                         {{.}}
                     </label>
                 </li>
@@ -108,21 +151,37 @@
     <div class="row gap-3">
         {{range .trades}}
             <div class="col-12 col-md-6 col-lg-3 border border-white rounded-2 my-2 px-3 pb-3 pt-1">
+                <div class="d-flex flex-column float-end gap-2 my-2">
+                    <a href="/edit/{{.Pk}}" class="btn btn-success btn-sm rounded-0" type="button" data-toggle="tooltip" data-placement="top" title="Edit"><i class="fa fa-edit"></i></a>
+                    <button data-bs-toggle="modal" data-bs-target="#confirmDeleteModal-{{.Pk}}" class="btn btn-danger btn-sm rounded-0 cursor-warning" type="button" data-toggle="tooltip" data-placement="top" title="Delete"><i class="fa fa-trash"></i></button>
+                </div>
+
                 <span class="d-block">
                     Ergebnis: <b class="text-uppercase {{if .Result.IsCorrect}}text-success{{else}}text-danger{{end}}">{{.Result}}</b>
                 </span>
                 <span class="d-block">
                     You chose <b class="text-uppercase">{{.Traded}}</b>
                 </span>
+                {{if .RiskFromSL}}
                 <span class="d-block">
-                    TP1: <b>{{.TP1}}</b> {{if .TP1Ratio}}{{.TP1Ratio}}{{end}}
+                    Risiko: <b>{{.RiskFromSL}}%</b>
                 </span>
+                {{end}}
+                {{if .EntryPrice}}
                 <span class="d-block">
-                    TP2: <b>{{.TP2}}</b> {{if .TP2Ratio}}{{.TP2Ratio}}{{end}}
+                    Entry: <b>{{.EntryPrice}}</b>
                 </span>
+                {{end}}
+                {{if .StopLoss}}
                 <span class="d-block">
-                    TP3: <b>{{.TP3}}</b> {{if .TP3Ratio}}{{.TP3Ratio}}{{end}}
+                    SL: <b>{{.StopLoss}}</b>
                 </span>
+                {{end}}
+                {{if .Exits}}
+                <span class="d-block text-secondary" style="font-size:0.85em">
+                    {{len .Exits}} Exit(s):{{range .Exits}} {{.Quantity}}% @{{.Price}}{{end}}
+                </span>
+                {{end}}
                 <div class="d-flex gap-1 my-2">
                     {{range .Tags}}
                         <span class="tag">{{.}}</span>
@@ -130,12 +189,30 @@
                 </div>
                 <div class="d-flex gap-3">
                     {{range .Screenshots}}
-                        <a target="_blank" href="/files/{{.}}">
+                        <a target="_blank" href="/files/{{.}}" data-fslightbox="screenshots-{{$.Pk}}">
                             <img class="screenshot img-thumbnail" src="/files/{{.}}" />
                         </a>
                     {{end}}
                 </div>
-                <a class="btn btn-warning float-end" href="/edit/{{.Pk}}">Edit</a>
+
+                <!-- Delete Modal -->
+                <div class="modal fade" id="confirmDeleteModal-{{.Pk}}" tabindex="-1" aria-labelledby="confirmDeleteLabel-{{.Pk}}" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="confirmDeleteLabel-{{.Pk}}">Confirm Delete</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                Are you sure you want to delete this item? This action cannot be undone.
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button onclick="fetch('/delete/{{.Pk}}', { method: 'DELETE' }).then(_ => location.reload())" type="button" class="btn btn-danger" id="confirmDeleteButton-{{.Pk}}">Yes, Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         {{end}}
     </div>

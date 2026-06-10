@@ -7,8 +7,18 @@
             x-data='{
                     tags: {{ toJSON .tags }},
                     symbols: {{ toJSON .symbols }},
+                    assetClasses: {{ toJSON .assetClasses }},
                     replaceTags(data, elt) { this.tags = data; },
                     replaceSymbols(data, elt) { this.symbols = data; },
+                    replaceAssetClasses(data, elt) { this.assetClasses = data; },
+
+                    selectedTags: {{ if .trade }}{{ toJSON .trade.Tags }}{{ else }}[]{{ end }},
+                    isSelected(tag) { return this.selectedTags.includes(tag); },
+                    selectedSymbol: {{ if .trade }}{{ toJSON .trade.Symbol }}{{ else }}""{{ end }},
+
+                    exits: {{ if .trade }}{{ toJSON .trade.Exits }}{{ else }}[]{{ end }},
+                    addExit() { this.exits.push({ date: "", price: "", qty: "" }); },
+                    removeExit(i) { this.exits.splice(i, 1); },
             }'
 >
     <form
@@ -16,107 +26,128 @@
             action="/insert"
             enctype="multipart/form-data"
     >
+        {{ if .trade }}
+        <input type="hidden" name="id" value="{{ .trade.Pk }}" />
+        {{ end }}
+
+        <!-- Symbol -->
         <label for="symbol">Asset</label>
         <select id="symbol" name="symbol" class="form-select" required>
             <option value="">---</option>
             <template x-for="symbol in symbols">
-                <option x-text="symbol"></option>
+                <option
+                        x-text="symbol"
+                        :selected="symbol === selectedSymbol">
+                </option>
             </template>
         </select>
 
-        <div class="row">
-            <div class="col-6">
-                <div>
-                    <label class="mt-2" for="traded">Trade</label>
-                    <select id="traded" name="traded" class="form-select" required>
-                        <option value="" {{ if not .trade }}selected{{ end }}>-- Bitte ausfüllen --</option>
-                        <option value="skip"  {{ if and .trade (eq .trade.Traded "skip") }}selected{{ end }}>Skip</option>
-                        <option value="long"  {{ if and .trade (eq .trade.Traded "long") }}selected{{ end }}>Long</option>
-                        <option value="short" {{ if and .trade (eq .trade.Traded "short") }}selected{{ end }}>Short</option>
-                    </select>
-                </div>
-            </div>
-            <div class="col-6">
-                <div class="ms-4">
-                    <label class="mt-2" for="risk">Risiko %</label>
-                    <input name="risk" id="risk" class="form-control" type="number" step="0.25" max="10" min="0" {{ if .trade }}value="{{.trade.Risk}}"{{ end }} required>
-                </div>
-            </div>
+        <!-- Traded -->
+        <div class="mt-2">
+            <label for="traded">Trade</label>
+            <select id="traded" name="traded" class="form-select" required>
+                <option value="" {{ if not .trade }}selected{{ end }}>-- Bitte ausfüllen --</option>
+                <option value="skip"  {{ if and .trade (eq .trade.Traded "skip") }}selected{{ end }}>Skip</option>
+                <option value="long"  {{ if and .trade (eq .trade.Traded "long") }}selected{{ end }}>Long</option>
+                <option value="short" {{ if and .trade (eq .trade.Traded "short") }}selected{{ end }}>Short</option>
+            </select>
         </div>
 
+        <!-- Result -->
         <label class="mt-2" for="result">Ergebnis</label>
         <select id="result" name="result" class="form-select" required>
-            <option value="" selected>-- Bitte ausfüllen --</option>
-            <option value="not finished">Not Finished</option>
-            <option value="skip">Skip</option>
-            <option value="loss">Loss</option>
-            <option value="break-even">Break Even</option>
-            <option value="tp1">TP1</option>
-            <option value="tp2">TP2</option>
-            <option value="tp3">TP3</option>
+            <option value="" {{ if not .trade }}selected{{ end }}>-- Bitte ausfüllen --</option>
+            <option value="not finished" {{ if and .trade (eq .trade.Result "not finished") }}selected{{ end }}>Not Finished</option>
+            <option value="skip"         {{ if and .trade (eq .trade.Result "skip") }}selected{{ end }}>Skip</option>
+            <option value="win"          {{ if and .trade (eq .trade.Result "win") }}selected{{ end }}>Win</option>
+            <option value="loss"         {{ if and .trade (eq .trade.Result "loss") }}selected{{ end }}>Loss</option>
+            <option value="break-even"   {{ if and .trade (eq .trade.Result "break-even") }}selected{{ end }}>Break-Even</option>
         </select>
 
-        <label class="mt-2" for="tp1">TP1</label>
-        <div class="d-flex gap-2 align-items-center">
-            <select id="tp1" name="tp1" class="form-select">
-                <option>---</option>
-                <template x-for="tag in tags">
-                    <option x-text="tag"></option>
-                </template>
-            </select>
-            <div>
-                <input name="tp1Ratio" class="form-control" type="number" step="0.25" min="0" placeholder="Reward Ratio">
+        <!-- Entry + Stoploss -->
+        <div class="row mt-2">
+            <div class="col-6">
+                <label for="entryPrice">Entry Preis</label>
+                <input name="entryPrice" id="entryPrice" class="form-control"
+                       type="number" step="any" min="0"
+                       {{ if .trade }}value="{{.trade.EntryPrice}}"{{ end }}>
+            </div>
+            <div class="col-6">
+                <label for="stopLoss">Stoploss Preis</label>
+                <input name="stopLoss" id="stopLoss" class="form-control"
+                       type="number" step="any" min="0"
+                       {{ if .trade }}value="{{.trade.StopLoss}}"{{ end }}>
             </div>
         </div>
 
-        <label class="mt-2" for="tp2">TP2</label>
-        <div class="d-flex gap-2 align-items-center">
-            <select id="tp2" name="tp2" class="form-select">
-                <option>---</option>
-                <template x-for="tag in tags">
-                    <option x-text="tag"></option>
-                </template>
-            </select>
-            <div>
-                <input name="tp2Ratio" class="form-control" type="number" step="0.25" min="0" placeholder="Reward Ratio">
-            </div>
+        <!-- Exits -->
+        <div class="mt-3">
+            <label>Exits</label>
+            <template x-for="(exit, i) in exits" :key="i">
+                <div class="d-flex gap-2 align-items-center mb-2">
+                    <input class="form-control" type="date" x-model="exits[i].date">
+                    <input class="form-control" type="number" step="any" min="0"
+                           x-model="exits[i].price" placeholder="Preis">
+                    <input class="form-control" type="number" step="1" min="0" max="100"
+                           x-model="exits[i].qty" placeholder="% der Position">
+                    <button type="button" class="btn btn-danger btn-sm flex-shrink-0" @click="removeExit(i)">
+                        <i class="fa fa-trash"></i>
+                    </button>
+                </div>
+            </template>
+            <button type="button" class="btn btn-outline-light btn-sm mt-1" @click="addExit()">
+                + Exit hinzufügen
+            </button>
+            <input type="hidden" name="exitsJSON" :value="JSON.stringify(exits)">
         </div>
 
-        <label class="mt-2" for="tp3">TP3</label>
-        <div class="d-flex gap-2 align-items-center">
-            <select id="tp3" name="tp3" class="form-select">
-                <option>---</option>
-                <template x-for="tag in tags">
-                    <option x-text="tag"></option>
-                </template>
-            </select>
-            <div>
-                <input name="tp3Ratio" class="form-control" type="number" step="0.25" min="0" placeholder="Reward Ratio">
-            </div>
-        </div>
 
+        <!-- Screenshots -->
         <div class="my-3">
             <label for="files" class="form-label">Screenshots</label>
+
+            <div class="d-flex gap-3 mb-3">
+                {{ if and .trade .trade.Screenshots }}
+                {{ range $i, $img := .trade.Screenshots }}
+                <div class="position-relative">
+                    <input style="display: none;" type="checkbox" class="hide-label-if-checked" name="screenshots[]" id="screenshot-{{$i}}" value="{{.}}" checked />
+
+                    <a class="d-flex" target="_blank" href="/files/{{.}}" data-fslightbox="screenshots">
+                        <img class="screenshot img-thumbnail" src="/files/{{.}}" />
+                    </a>
+
+                    <label for="screenshot-{{$i}}" class="btn btn-danger btn-sm rounded-0 position-absolute top-0 opacity-75 cursor-warning" type="button" data-toggle="tooltip" data-placement="top" title="Delete"><i class="fa fa-trash"></i></label>
+                </div>
+                {{ end }}
+                {{ end }}
+            </div>
+
             <input class="form-control form-control-lg" name="files" id="files" type="file" multiple>
         </div>
 
+        <!-- Notes -->
         <div class="my-3">
             <label for="notes" class="form-label">Notiz</label>
-            <textarea class="form-control" name="notes" id="notes"></textarea>
+            <textarea class="form-control" name="notes" id="notes">{{ if .trade }}{{ .trade.Notes }}{{ end }}</textarea>
         </div>
 
+        <!-- Tags -->
         <div class="d-flex flex-wrap gap-2" id="tags">
             <template x-for="tag in tags" :key="tag">
                 <div>
-                    <input type="checkbox" class="btn-check" :id="`tags-${tag}`" name="tags[]" :value="`${tag}`" autocomplete="off">
+                    <input type="checkbox" class="btn-check" :id="`tags-${tag}`" name="tags[]" :value="tag"
+                           autocomplete="off"
+                           :checked="isSelected(tag)">
                     <label class="btn btn-outline-light btn-sm" :for="`tags-${tag}`" x-text="tag"></label>
                 </div>
             </template>
         </div>
 
-        <button class="btn btn-primary mt-3" type="submit">Hinzufügen</button>
+        <button class="btn btn-primary mt-3" type="submit">{{ if .trade }}Speichern{{else}}Hinzufügen{{ end }}</button>
     </form>
-    <div class="row justify-content-between">
+
+    <!-- Tag / Symbol Management -->
+    <div class="row justify-content-between mt-4">
         <div class="col-12 col-md-2">
             <form
                     class="me-4"
@@ -163,6 +194,13 @@
 
                 <input required placeholder="Asset Symbol" class="form-control" type="text" name="Symbol" />
 
+                <select name="assetClass" class="form-select mt-2">
+                    <option value="">Keine Klasse</option>
+                    <template x-for="cls in assetClasses">
+                        <option :value="cls" x-text="cls"></option>
+                    </template>
+                </select>
+
                 <button class="btn btn-light mt-3" type="submit">Add Asset</button>
             </form>
         </div>
@@ -183,6 +221,43 @@
                     </template>
                 </div>
                 <button class="btn btn-danger mt-3" type="submit">Remove Asset</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Asset Class Management -->
+    <div class="row justify-content-between mt-2">
+        <div class="col-12 col-md-2">
+            <form
+                    class="me-4"
+                    method="post"
+                    action="/add-asset-class"
+                    hx-post="/add-asset-class"
+                    hx-handle-json="replaceAssetClasses"
+                    hx-on::after-request="if(event.detail.successful) this.reset()">
+
+                <input required placeholder="Klassen-Name" class="form-control" type="text" name="Title" />
+
+                <button class="btn btn-light mt-3" type="submit">Add Asset Class</button>
+            </form>
+        </div>
+        <div class="col-12 col-md-10">
+            <form
+                    method="post"
+                    action="/remove-asset-class"
+                    hx-post="/remove-asset-class"
+                    hx-handle-json="replaceAssetClasses"
+            >
+
+                <div class="d-flex flex-wrap gap-2">
+                    <template x-for="cls in assetClasses" :key="cls">
+                        <div>
+                            <input type="radio" class="btn-check" :id="`rmcls-${cls}`" name="Title" :value="cls" autocomplete="off">
+                            <label class="btn btn-outline-light btn-sm" :for="`rmcls-${cls}`" x-text="cls"></label>
+                        </div>
+                    </template>
+                </div>
+                <button class="btn btn-danger mt-3" type="submit">Remove Asset Class</button>
             </form>
         </div>
     </div>

@@ -6,13 +6,13 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"strconv"
-	"time"
+	"reflect"
 
 	"github.com/asdine/storm/v3"
 	"github.com/gin-contrib/multitemplate"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/afero"
+	"rorita.moe/trading-db/src"
 )
 
 func toJSONFuncMap() template.FuncMap {
@@ -25,6 +25,18 @@ func toJSONFuncMap() template.FuncMap {
 			buf := new(bytes.Buffer)
 			json.HTMLEscape(buf, b)
 			return template.JS(buf.String())
+		},
+		"in": func(slice interface{}, val interface{}) bool {
+			s := reflect.ValueOf(slice)
+			if s.Kind() != reflect.Slice && s.Kind() != reflect.Array {
+				return false
+			}
+			for i := 0; i < s.Len(); i++ {
+				if reflect.DeepEqual(s.Index(i).Interface(), val) {
+					return true
+				}
+			}
+			return false
 		},
 	}
 }
@@ -41,6 +53,8 @@ func loadTemplates() multitemplate.Renderer {
 	return r
 }
 
+var ASSET_CLASSES = [...]string{"Crypto", "Commodities", "Forex", "Indices", "Metals", "Stocks"}
+
 var TAGS = [...]string{
 	"LSOB",
 	"GUSS",
@@ -54,6 +68,11 @@ var TAGS = [...]string{
 	"RSI Neckline Break Divergence",
 	"R:R",
 	"Break-Even",
+	"Cycle Low",
+	"Half-Cycle Low",
+	"Weekly Cycle Low",
+	"Left Translated",
+	"Right Translated",
 }
 
 func main() {
@@ -68,17 +87,24 @@ func main() {
 	}()
 
 	osFs := afero.NewOsFs()
-	jailedFs := afero.NewBasePathFs(osFs, "./uploads/")
+	uploadsFs := afero.NewBasePathFs(osFs, "./uploads/")
 	assetsFs := afero.NewBasePathFs(osFs, "./assets/")
 
-	httpFS := afero.NewHttpFs(jailedFs)
+	httpFS := afero.NewHttpFs(uploadsFs)
 	fileServer := http.FileServer(httpFS.Dir("/"))
 
 	assetsHttpFS := afero.NewHttpFs(assetsFs)
 	assetsFileServer := http.FileServer(assetsHttpFS.Dir("/"))
 
 	for _, tag := range TAGS {
-		err = db.Save(&Tag{tag})
+		err = db.Save(&src.Tag{Title: tag})
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	for _, cls := range ASSET_CLASSES {
+		err = db.Save(&src.AssetClass{Title: cls})
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -99,267 +125,7 @@ func main() {
 		fileServer.ServeHTTP(c.Writer, c.Request)
 	})
 
-	r.GET("/", func(c *gin.Context) {
-		var trades []Trade
-		err = db.All(&trades, storm.Reverse())
-
-		var tags []Tag
-		err = db.All(&tags, storm.Reverse())
-
-		var stringTags []string
-		for _, tag := range tags {
-			stringTags = append(stringTags, tag.Title)
-		}
-
-		var assets []Asset
-		err = db.All(&assets)
-
-		var symbols []string
-		for _, symbol := range assets {
-			symbols = append(symbols, symbol.Symbol)
-		}
-
-		c.HTML(200, "index", gin.H{
-			"tags":    stringTags,
-			"symbols": symbols,
-			"trades":  trades,
-		})
-	})
-
-	r.GET("/add", func(c *gin.Context) {
-		var tags []Tag
-		err = db.All(&tags, storm.Reverse())
-
-		var stringTags []string
-		for _, tag := range tags {
-			stringTags = append(stringTags, tag.Title)
-		}
-
-		var assets []Asset
-		err = db.All(&assets)
-
-		var symbols []string
-		for _, symbol := range assets {
-			symbols = append(symbols, symbol.Symbol)
-		}
-
-		c.HTML(200, "add", gin.H{
-			"tags":    stringTags,
-			"symbols": symbols,
-		})
-	})
-
-	r.GET("/edit/:id", func(c *gin.Context) {
-		id, err := strconv.ParseInt(c.Param("id"), 10, 0)
-
-		var trade Trade
-
-		err = db.One("Pk", id, &trade)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		var tags []Tag
-		err = db.All(&tags, storm.Reverse())
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		var stringTags []string
-		for _, tag := range tags {
-			stringTags = append(stringTags, tag.Title)
-		}
-
-		var assets []Asset
-		err = db.All(&assets)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		var symbols []string
-		for _, symbol := range assets {
-			symbols = append(symbols, symbol.Symbol)
-		}
-
-		c.HTML(200, "add", gin.H{
-			"tags":    stringTags,
-			"symbols": symbols,
-			"trade":   trade,
-		})
-	})
-
-	r.POST("/add-tag", func(c *gin.Context) {
-		var tag Tag
-
-		err := c.ShouldBind(&tag)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		err = db.Save(&tag)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		var tags []Tag
-		err = db.All(&tags, storm.Reverse())
-
-		var stringTags []string
-		for _, tag := range tags {
-			stringTags = append(stringTags, tag.Title)
-		}
-
-		if c.GetHeader("HX-Request") != "" {
-			c.JSON(200, stringTags)
-		} else {
-			c.Redirect(302, "/add")
-		}
-	})
-
-	r.POST("/remove-tag", func(c *gin.Context) {
-		var tag Tag
-
-		err := c.ShouldBind(&tag)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		err = db.DeleteStruct(&tag)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		var tags []Tag
-		err = db.All(&tags, storm.Reverse())
-
-		var stringTags []string
-		for _, tag := range tags {
-			stringTags = append(stringTags, tag.Title)
-		}
-
-		if c.GetHeader("HX-Request") != "" {
-			c.JSON(200, stringTags)
-		} else {
-			c.Redirect(302, "/add")
-		}
-
-	})
-
-	r.POST("/add-symbol", func(c *gin.Context) {
-		var asset Asset
-
-		err := c.ShouldBind(&asset)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		err = db.Save(&asset)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		var assets []Asset
-		err = db.All(&assets)
-
-		var symbols []string
-		for _, symbol := range assets {
-			symbols = append(symbols, symbol.Symbol)
-		}
-
-		if c.GetHeader("HX-Request") != "" {
-			c.JSON(200, symbols)
-		} else {
-			c.Redirect(302, "/add")
-		}
-	})
-
-	r.POST("/remove-symbol", func(c *gin.Context) {
-		var asset Asset
-
-		err := c.ShouldBind(&asset)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		err = db.DeleteStruct(&asset)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		var assets []Asset
-		err = db.All(&assets)
-
-		var symbols []string
-		for _, symbol := range assets {
-			symbols = append(symbols, symbol.Symbol)
-		}
-
-		if c.GetHeader("HX-Request") != "" {
-			c.JSON(200, symbols)
-		} else {
-			c.Redirect(302, "/add")
-		}
-
-	})
-
-	r.POST("/insert", func(c *gin.Context) {
-		var trade Trade
-
-		err := c.ShouldBind(&trade)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		trade.CreatedAt = time.Now()
-
-		err = db.Save(&trade)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		filenamePrefix := strconv.Itoa(trade.Pk) + "-" + time.Now().Format("2006-01-02T15:04:05")
-
-		form, err := c.MultipartForm()
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-		files := form.File["files"]
-		for _, file := range files {
-			log.Println(file.Filename)
-			filename := filenamePrefix + "-" + file.Filename
-
-			err := c.SaveUploadedFile(file, "./uploads/"+filename)
-			if err != nil {
-				c.String(http.StatusBadRequest, "error saving file: %s", file.Filename)
-				return
-			}
-
-			trade.Screenshots = append(trade.Screenshots, filename)
-		}
-
-		err = db.Save(&trade)
-		if err != nil {
-			c.String(http.StatusBadRequest, err.Error())
-			return
-		}
-
-		// c.String(http.StatusOK, fmt.Sprintf("%d files uploaded!", len(files)))
-		c.Redirect(302, "/")
-	})
+	src.CreateRoutes(db, r)
 
 	err = r.Run("127.0.0.1:18596")
 	if err != nil {

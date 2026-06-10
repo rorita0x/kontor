@@ -1,9 +1,15 @@
-package main
+package src
 
 import (
 	"strconv"
 	"time"
 )
+
+type Exit struct {
+	Date     string `json:"date"`
+	Price    F32    `json:"price"`
+	Quantity F32    `json:"qty"`
+}
 
 type Traded string
 
@@ -20,18 +26,11 @@ const (
 	RESULT_SKIP                    = "skip"
 	RESULT_LOSS                    = "loss"
 	RESULT_BREAKEVEN               = "break-even"
-	RESULT_TP1                     = "tp1"
-	RESULT_TP2                     = "tp2"
-	RESULT_TP3                     = "tp3"
+	RESULT_WIN                     = "win"
 )
 
 func (r TradeResult) IsCorrect() bool {
-	switch r {
-	case RESULT_TP1, RESULT_TP2, RESULT_TP3:
-		return true
-	default:
-		return false
-	}
+	return r == RESULT_WIN
 }
 
 type F32 float32
@@ -59,22 +58,28 @@ type Trade struct {
 	CreatedAt time.Time `storm:"index" json:"createdAt" form:"-" uri:"-" binding:"-"`
 
 	Symbol      string   `form:"symbol" json:"symbol" form:"symbol" binding:"required"`
-	Screenshots []string `form:"-" binding:"-"`
-	Tags        []string `form:"tags[]" binding:"required"`
+	Screenshots []string `form:"screenshots[]" json:"screenshots"`
+	Tags        []string `form:"tags[]" json:"tags"`
+
+	Notes string `form:"notes" json:"notes"`
 
 	Traded Traded      `form:"traded" binding:"required"`
 	Result TradeResult `form:"result" binding:"required"`
 
-	Risk F32 `form:"risk"`
+	EntryPrice F32    `form:"entryPrice" json:"entryPrice"`
+	StopLoss   F32    `form:"stopLoss" json:"stopLoss"`
+	Exits      []Exit `json:"exits"`
+}
 
-	TP1      string `form:"tp1"`
-	TP1Ratio F32    `form:"tp1Ratio"`
-
-	TP2      string `form:"tp2"`
-	TP2Ratio F32    `form:"tp2Ratio"`
-
-	TP3      string `form:"tp3"`
-	TP3Ratio F32    `form:"tp3Ratio"`
+func (t Trade) RiskFromSL() F32 {
+	if t.EntryPrice <= 0 || t.StopLoss <= 0 {
+		return 0
+	}
+	diff := t.EntryPrice - t.StopLoss
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff / t.EntryPrice * 100
 }
 
 type Tag struct {
@@ -82,5 +87,16 @@ type Tag struct {
 }
 
 type Asset struct {
-	Symbol string `storm:"id"`
+	Symbol     string `storm:"id"`
+	AssetClass string `form:"assetClass" json:"assetClass"`
+}
+
+type AssetClass struct {
+	Title string `storm:"id"`
+}
+
+type ClassRiskSummary struct {
+	Class      string
+	TotalRisk  F32
+	TradeCount int
 }

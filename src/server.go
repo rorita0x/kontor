@@ -1,0 +1,522 @@
+package src
+
+import (
+	"encoding/json"
+	"log"
+	"net/http"
+	"slices"
+	"sort"
+	"strconv"
+	"time"
+
+	"github.com/asdine/storm/v3"
+	"github.com/gin-gonic/gin"
+)
+
+type Filter struct {
+	Assets       []string `form:"symbols[]"`
+	Trades       []string `form:"trade[]"`
+	Tags         []string `form:"tags[]"`
+	NeedsAllTags bool     `form:"needsAllTags"`
+}
+
+func computeClassRisk(trades []Trade, assets []Asset) []ClassRiskSummary {
+	symbolToClass := make(map[string]string, len(assets))
+	for _, a := range assets {
+		symbolToClass[a.Symbol] = a.AssetClass
+	}
+
+	classRisk := make(map[string]ClassRiskSummary)
+	for _, t := range trades {
+		if t.Result != RESULT_NOTFINISHED {
+			continue
+		}
+		class := symbolToClass[t.Symbol]
+		if class == "" {
+			class = "Unclassified"
+		}
+		s := classRisk[class]
+		s.Class = class
+		s.TotalRisk += t.RiskFromSL()
+		s.TradeCount++
+		classRisk[class] = s
+	}
+
+	result := make([]ClassRiskSummary, 0, len(classRisk))
+	for _, v := range classRisk {
+		result = append(result, v)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Class < result[j].Class
+	})
+	return result
+}
+
+func CreateRoutes(db *storm.DB, r *gin.Engine) {
+
+	r.GET("/", func(c *gin.Context) {
+		var trades []Trade
+		err := db.All(&trades, storm.Reverse())
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var tags []Tag
+		err = db.All(&tags, storm.Reverse())
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var stringTags []string
+		for _, tag := range tags {
+			stringTags = append(stringTags, tag.Title)
+		}
+
+		var assets []Asset
+		err = db.All(&assets)
+
+		var symbols []string
+		for _, symbol := range assets {
+			symbols = append(symbols, symbol.Symbol)
+		}
+
+		c.HTML(200, "index", gin.H{
+			"tags":      stringTags,
+			"symbols":   symbols,
+			"trades":    trades,
+			"classRisk": computeClassRisk(trades, assets),
+		})
+	})
+
+	r.POST("/", func(c *gin.Context) {
+		var filter Filter
+		err := c.Bind(&filter)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var trades []Trade
+		err = db.All(&trades, storm.Reverse())
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var filteredTrades []Trade
+
+	TRADES:
+		for _, trade := range trades {
+			if !slices.Contains(filter.Trades, string(trade.Traded)) {
+				continue
+			}
+
+			if !slices.Contains(filter.Assets, trade.Symbol) {
+				continue
+			}
+
+			if filter.NeedsAllTags {
+				for _, tag := range filter.Tags {
+					if !slices.Contains(trade.Tags, tag) {
+						continue TRADES
+					}
+				}
+			} else {
+				for _, tag := range filter.Tags {
+					if !slices.Contains(trade.Tags, tag) {
+						filteredTrades = append(filteredTrades, trade)
+						break
+					}
+				}
+				continue TRADES
+			}
+
+			filteredTrades = append(filteredTrades, trade)
+		}
+
+		var tags []Tag
+		err = db.All(&tags, storm.Reverse())
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var stringTags []string
+		for _, tag := range tags {
+			stringTags = append(stringTags, tag.Title)
+		}
+
+		var assets []Asset
+		err = db.All(&assets)
+
+		var symbols []string
+		for _, symbol := range assets {
+			symbols = append(symbols, symbol.Symbol)
+		}
+
+		c.HTML(200, "index", gin.H{
+			"tags":      stringTags,
+			"symbols":   symbols,
+			"trades":    filteredTrades,
+			"filter":    filter,
+			"classRisk": computeClassRisk(trades, assets),
+		})
+	})
+
+	r.GET("/add", func(c *gin.Context) {
+		var tags []Tag
+		err := db.All(&tags, storm.Reverse())
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var stringTags []string
+		for _, tag := range tags {
+			stringTags = append(stringTags, tag.Title)
+		}
+
+		var assets []Asset
+		err = db.All(&assets)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var symbols []string
+		for _, symbol := range assets {
+			symbols = append(symbols, symbol.Symbol)
+		}
+
+		var assetClasses []AssetClass
+		err = db.All(&assetClasses)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var stringClasses []string
+		for _, cls := range assetClasses {
+			stringClasses = append(stringClasses, cls.Title)
+		}
+
+		c.HTML(200, "add", gin.H{
+			"tags":         stringTags,
+			"symbols":      symbols,
+			"assetClasses": stringClasses,
+		})
+	})
+
+	r.GET("/edit/:id", func(c *gin.Context) {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 0)
+
+		var trade Trade
+
+		err = db.One("Pk", id, &trade)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var tags []Tag
+		err = db.All(&tags, storm.Reverse())
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var stringTags []string
+		for _, tag := range tags {
+			stringTags = append(stringTags, tag.Title)
+		}
+
+		var assets []Asset
+		err = db.All(&assets)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var symbols []string
+		for _, symbol := range assets {
+			symbols = append(symbols, symbol.Symbol)
+		}
+
+		var assetClasses []AssetClass
+		err = db.All(&assetClasses)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var stringClasses []string
+		for _, cls := range assetClasses {
+			stringClasses = append(stringClasses, cls.Title)
+		}
+
+		c.HTML(200, "add", gin.H{
+			"tags":         stringTags,
+			"symbols":      symbols,
+			"assetClasses": stringClasses,
+			"trade":        trade,
+		})
+	})
+
+	r.DELETE("/delete/:id", func(c *gin.Context) {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 0)
+
+		var trade Trade
+		err = db.One("Pk", id, &trade)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		err = db.DeleteStruct(&trade)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		c.Redirect(302, "/")
+	})
+
+	r.POST("/add-tag", func(c *gin.Context) {
+		var tag Tag
+
+		err := c.ShouldBind(&tag)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		err = db.Save(&tag)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var tags []Tag
+		err = db.All(&tags, storm.Reverse())
+
+		var stringTags []string
+		for _, tag := range tags {
+			stringTags = append(stringTags, tag.Title)
+		}
+
+		if c.GetHeader("HX-Request") != "" {
+			c.JSON(200, stringTags)
+		} else {
+			c.Redirect(302, "/add")
+		}
+	})
+
+	r.POST("/remove-tag", func(c *gin.Context) {
+		var tag Tag
+
+		err := c.ShouldBind(&tag)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		err = db.DeleteStruct(&tag)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var tags []Tag
+		err = db.All(&tags, storm.Reverse())
+
+		var stringTags []string
+		for _, tag := range tags {
+			stringTags = append(stringTags, tag.Title)
+		}
+
+		if c.GetHeader("HX-Request") != "" {
+			c.JSON(200, stringTags)
+		} else {
+			c.Redirect(302, "/add")
+		}
+
+	})
+
+	r.POST("/add-symbol", func(c *gin.Context) {
+		var asset Asset
+
+		err := c.ShouldBind(&asset)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		err = db.Save(&asset)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var assets []Asset
+		err = db.All(&assets)
+
+		var symbols []string
+		for _, symbol := range assets {
+			symbols = append(symbols, symbol.Symbol)
+		}
+
+		if c.GetHeader("HX-Request") != "" {
+			c.JSON(200, symbols)
+		} else {
+			c.Redirect(302, "/add")
+		}
+	})
+
+	r.POST("/remove-symbol", func(c *gin.Context) {
+		var asset Asset
+
+		err := c.ShouldBind(&asset)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		err = db.DeleteStruct(&asset)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var assets []Asset
+		err = db.All(&assets)
+
+		var symbols []string
+		for _, symbol := range assets {
+			symbols = append(symbols, symbol.Symbol)
+		}
+
+		if c.GetHeader("HX-Request") != "" {
+			c.JSON(200, symbols)
+		} else {
+			c.Redirect(302, "/add")
+		}
+
+	})
+
+	r.POST("/add-asset-class", func(c *gin.Context) {
+		var cls AssetClass
+
+		err := c.ShouldBind(&cls)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		err = db.Save(&cls)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var assetClasses []AssetClass
+		err = db.All(&assetClasses)
+
+		var stringClasses []string
+		for _, ac := range assetClasses {
+			stringClasses = append(stringClasses, ac.Title)
+		}
+
+		if c.GetHeader("HX-Request") != "" {
+			c.JSON(200, stringClasses)
+		} else {
+			c.Redirect(302, "/add")
+		}
+	})
+
+	r.POST("/remove-asset-class", func(c *gin.Context) {
+		var cls AssetClass
+
+		err := c.ShouldBind(&cls)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		err = db.DeleteStruct(&cls)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var assetClasses []AssetClass
+		err = db.All(&assetClasses)
+
+		var stringClasses []string
+		for _, ac := range assetClasses {
+			stringClasses = append(stringClasses, ac.Title)
+		}
+
+		if c.GetHeader("HX-Request") != "" {
+			c.JSON(200, stringClasses)
+		} else {
+			c.Redirect(302, "/add")
+		}
+	})
+
+	r.POST("/insert", func(c *gin.Context) {
+		var trade Trade
+
+		err := c.ShouldBind(&trade)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		if exitsJSON := c.PostForm("exitsJSON"); exitsJSON != "" {
+			json.Unmarshal([]byte(exitsJSON), &trade.Exits)
+		}
+
+		trade.CreatedAt = time.Now()
+
+		err = db.Save(&trade)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		filenamePrefix := strconv.Itoa(trade.Pk) + "-" + time.Now().Format("2006-01-02T15:04:05")
+
+		form, err := c.MultipartForm()
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		log.Println(trade.Screenshots)
+
+		files := form.File["files"]
+		for _, file := range files {
+			log.Println(file.Filename)
+			filename := filenamePrefix + "-" + file.Filename
+
+			err := c.SaveUploadedFile(file, "./uploads/"+filename)
+			if err != nil {
+				c.String(http.StatusBadRequest, "error saving file: %s", file.Filename)
+				return
+			}
+
+			trade.Screenshots = append(trade.Screenshots, filename)
+		}
+
+		err = db.Save(&trade)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		// c.String(http.StatusOK, fmt.Sprintf("%d files uploaded!", len(files)))
+		c.Redirect(302, "/")
+	})
+}
