@@ -104,9 +104,13 @@ func main() {
 	}
 
 	for _, cls := range ASSET_CLASSES {
-		err = db.Save(&src.AssetClass{Title: cls})
-		if err != nil {
-			log.Fatal(err)
+		// Nur anlegen, wenn die Klasse noch nicht existiert – sonst würde ein
+		// erneutes Save bei jedem Start das gepflegte RiskLimit auf 0 zurücksetzen.
+		var existing src.AssetClass
+		if err = db.One("Title", cls, &existing); err != nil {
+			if err = db.Save(&src.AssetClass{Title: cls}); err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 
