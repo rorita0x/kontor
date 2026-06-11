@@ -145,28 +145,36 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 
 	TRADES:
 		for _, trade := range trades {
-			if !slices.Contains(filter.Trades, string(trade.Traded)) {
+			// Leere Auswahl in einer Kategorie bedeutet "egal" und schränkt nicht ein.
+			if len(filter.Trades) > 0 && !slices.Contains(filter.Trades, string(trade.Traded)) {
 				continue
 			}
 
-			if !slices.Contains(filter.Assets, trade.Symbol) {
+			if len(filter.Assets) > 0 && !slices.Contains(filter.Assets, trade.Symbol) {
 				continue
 			}
 
-			if filter.NeedsAllTags {
-				for _, tag := range filter.Tags {
-					if !slices.Contains(trade.Tags, tag) {
+			if len(filter.Tags) > 0 {
+				if filter.NeedsAllTags {
+					// Muss ALLE gewählten Tags haben.
+					for _, tag := range filter.Tags {
+						if !slices.Contains(trade.Tags, tag) {
+							continue TRADES
+						}
+					}
+				} else {
+					// Muss IRGENDEINEN der gewählten Tags haben.
+					hasAny := false
+					for _, tag := range filter.Tags {
+						if slices.Contains(trade.Tags, tag) {
+							hasAny = true
+							break
+						}
+					}
+					if !hasAny {
 						continue TRADES
 					}
 				}
-			} else {
-				for _, tag := range filter.Tags {
-					if !slices.Contains(trade.Tags, tag) {
-						filteredTrades = append(filteredTrades, trade)
-						break
-					}
-				}
-				continue TRADES
 			}
 
 			filteredTrades = append(filteredTrades, trade)
@@ -591,7 +599,16 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			json.Unmarshal([]byte(exitsJSON), &trade.Exits)
 		}
 
-		trade.CreatedAt = time.Now()
+		// CreatedAt ist nicht im Formular (form:"-") und nach dem Bind leer. Beim
+		// Bearbeiten das vorhandene Datum erhalten, nur bei neuen Trades neu setzen.
+		if isUpdate {
+			var existing Trade
+			if err := db.One("Pk", trade.Pk, &existing); err == nil {
+				trade.CreatedAt = existing.CreatedAt
+			}
+		} else {
+			trade.CreatedAt = time.Now()
+		}
 
 		err = db.Save(&trade)
 		if err != nil {
