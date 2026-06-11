@@ -33,6 +33,40 @@ func (r TradeResult) IsCorrect() bool {
 	return r == RESULT_WIN
 }
 
+// Color liefert die zum Ergebnis passende Bootstrap-Kontextfarbe für Badges.
+func (r TradeResult) Color() string {
+	switch r {
+	case RESULT_WIN:
+		return "success"
+	case RESULT_LOSS:
+		return "danger"
+	case RESULT_BREAKEVEN:
+		return "warning"
+	case RESULT_NOTFINISHED:
+		return "info"
+	default:
+		return "secondary"
+	}
+}
+
+// Display liefert das deutschsprachige Label für die Anzeige.
+func (r TradeResult) Display() string {
+	switch r {
+	case RESULT_WIN:
+		return "Gewinn"
+	case RESULT_LOSS:
+		return "Verlust"
+	case RESULT_BREAKEVEN:
+		return "Break-Even"
+	case RESULT_NOTFINISHED:
+		return "Offen"
+	case RESULT_SKIP:
+		return "Skip"
+	default:
+		return string(r)
+	}
+}
+
 type F32 float32
 
 func (f *F32) UnmarshalText(b []byte) error {
@@ -142,6 +176,20 @@ type ClassRiskSummary struct {
 	TotalRisk       F32 // Summe der Konto-Risiko-Prozente
 	TotalRiskAmount F32 // Summe des Risikos in Kontowährung
 	TradeCount      int
+}
+
+// StatsSummary fasst Kennzahlen über eine Menge von Trades zusammen
+// (für die Kennzahlen-Leiste auf der Übersicht).
+type StatsSummary struct {
+	Total       int
+	Wins        int
+	Losses      int
+	BreakEven   int
+	Open        int // not finished
+	Skips       int
+	WinRate     F32 // % der entschiedenen Trades (Win / (Win+Loss))
+	OpenRisk    F32 // offenes Risiko in Kontowährung
+	OpenRiskPct F32 // offenes Risiko in % vom Konto
 }
 
 // Settings hält globale Einstellungen. Es gibt genau einen Datensatz mit Pk = 1.

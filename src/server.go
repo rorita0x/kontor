@@ -63,6 +63,33 @@ func computeClassRisk(trades []Trade, assets []Asset, accountSize F32) []ClassRi
 	return result
 }
 
+// computeStats berechnet Kennzahlen über die übergebene (bereits gefilterte
+// bzw. vollständige) Trade-Menge für die Kennzahlen-Leiste der Übersicht.
+func computeStats(trades []Trade, accountSize F32) StatsSummary {
+	var s StatsSummary
+	s.Total = len(trades)
+	for _, t := range trades {
+		switch t.Result {
+		case RESULT_WIN:
+			s.Wins++
+		case RESULT_LOSS:
+			s.Losses++
+		case RESULT_BREAKEVEN:
+			s.BreakEven++
+		case RESULT_NOTFINISHED:
+			s.Open++
+			s.OpenRisk += t.RiskAmount()
+			s.OpenRiskPct += t.RiskPercent(accountSize)
+		case RESULT_SKIP:
+			s.Skips++
+		}
+	}
+	if decided := s.Wins + s.Losses; decided > 0 {
+		s.WinRate = F32(float64(s.Wins) / float64(decided) * 100)
+	}
+	return s
+}
+
 // flashMessage übersetzt einen kurzen Flash-Code (aus dem ?flash=-Query-Param)
 // in einen anzuzeigenden Text und einen Bootstrap-Alert-Typ. Unbekannte Codes
 // liefern leere Werte, sodass keine Meldung gerendert wird.
@@ -120,6 +147,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"symbols":     symbols,
 			"trades":      trades,
 			"classRisk":   computeClassRisk(trades, assets, settings.AccountSize),
+			"stats":       computeStats(trades, settings.AccountSize),
 			"accountSize": settings.AccountSize,
 			"flash":       flash,
 			"flashType":   flashType,
@@ -208,6 +236,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"trades":      filteredTrades,
 			"filter":      filter,
 			"classRisk":   computeClassRisk(trades, assets, settings.AccountSize),
+			"stats":       computeStats(filteredTrades, settings.AccountSize),
 			"accountSize": settings.AccountSize,
 		})
 	})

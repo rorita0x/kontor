@@ -77,7 +77,7 @@
         {{ end }}
 
         <!-- Symbol -->
-        <label for="symbol">Asset</label>
+        <label for="symbol" class="form-label">Asset</label>
         <select id="symbol" name="symbol" class="form-select" required>
             <option value="">---</option>
             <template x-for="symbol in symbols">
@@ -91,7 +91,7 @@
 
         <!-- Traded -->
         <div class="mt-2">
-            <label for="traded">Trade</label>
+            <label for="traded" class="form-label">Trade</label>
             <select id="traded" name="traded" class="form-select" required x-model="traded">
                 <option value="" {{ if not .trade }}selected{{ end }}>-- Bitte ausfüllen --</option>
                 <option value="skip"  {{ if and .trade (eq .trade.Traded "skip") }}selected{{ end }}>Skip</option>
@@ -102,13 +102,13 @@
         </div>
 
         <!-- Result -->
-        <label class="mt-2" for="result">Ergebnis</label>
+        <label class="form-label mt-2" for="result">Ergebnis</label>
         <select id="result" name="result" class="form-select" required>
             <option value="" {{ if not .trade }}selected{{ end }}>-- Bitte ausfüllen --</option>
-            <option value="not finished" {{ if and .trade (eq .trade.Result "not finished") }}selected{{ end }}>Not Finished</option>
+            <option value="not finished" {{ if and .trade (eq .trade.Result "not finished") }}selected{{ end }}>Offen (noch nicht abgeschlossen)</option>
             <option value="skip"         {{ if and .trade (eq .trade.Result "skip") }}selected{{ end }}>Skip</option>
-            <option value="win"          {{ if and .trade (eq .trade.Result "win") }}selected{{ end }}>Win</option>
-            <option value="loss"         {{ if and .trade (eq .trade.Result "loss") }}selected{{ end }}>Loss</option>
+            <option value="win"          {{ if and .trade (eq .trade.Result "win") }}selected{{ end }}>Gewinn</option>
+            <option value="loss"         {{ if and .trade (eq .trade.Result "loss") }}selected{{ end }}>Verlust</option>
             <option value="break-even"   {{ if and .trade (eq .trade.Result "break-even") }}selected{{ end }}>Break-Even</option>
         </select>
         <div class="invalid-feedback">Bitte ein Ergebnis wählen.</div>
@@ -116,13 +116,13 @@
         <!-- Entry + Stoploss -->
         <div class="row mt-2">
             <div class="col-6">
-                <label for="entryPrice">Entry Preis</label>
+                <label for="entryPrice" class="form-label">Entry Preis</label>
                 <input name="entryPrice" id="entryPrice" class="form-control"
                        type="number" step="any" min="0"
                        x-model.number="entryPrice" @input="onEntryChange()">
             </div>
             <div class="col-6">
-                <label for="stopLoss">Stoploss Preis</label>
+                <label for="stopLoss" class="form-label">Stoploss Preis</label>
                 <input name="stopLoss" id="stopLoss" class="form-control"
                        type="number" step="any" min="0"
                        x-model.number="stopLoss">
@@ -132,17 +132,18 @@
         <!-- Positionsgröße: Stückzahl ODER Positionswert (eines reicht) -->
         <div class="row mt-2">
             <div class="col-6">
-                <label for="quantity">Stückzahl (Units)</label>
+                <label for="quantity" class="form-label">Stückzahl (Units)</label>
                 <input name="quantity" id="quantity" class="form-control"
                        type="number" step="any" min="0" placeholder="z.B. 0.5 BTC / 100 Aktien"
                        x-model.number="quantity" @input="syncFromQty()">
             </div>
             <div class="col-6">
-                <label for="positionValue">Positionswert (Notional)</label>
+                <label for="positionValue" class="form-label">Positionswert (Notional)</label>
                 <input name="positionValue" id="positionValue" class="form-control"
                        type="number" step="any" min="0" placeholder="Gesamt-Exposure in Kontowährung"
                        x-model.number="positionValue" @input="syncFromValue()">
             </div>
+            <small class="text-secondary d-block mt-1">Es genügt, eines von beiden zu füllen — das andere wird aus dem Entry-Preis berechnet.</small>
         </div>
 
         <!-- Live-Risiko-Vorschau -->

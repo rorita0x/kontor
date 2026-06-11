@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,6 +16,7 @@
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" integrity="sha512-2SwdPD6INVrV/lHTZbO2nodKhrnDdJK9/kg2XD1r9uGqPo1cUbujc+IYdlYdEErWNu69gVcYgdxlmVmzTWnetw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 
         <link rel="stylesheet" href="/assets/styles.css" />
+        <link rel="stylesheet" href="/assets/custom-ui.css" />
         <style>[x-cloak]{display:none !important;}</style>
     </head>
     <body>
@@ -49,5 +50,19 @@
         </main>
 
         <script src="https://cdnjs.cloudflare.com/ajax/libs/fslightbox/3.0.9/index.min.js" integrity="sha512-03Ucfdj4I8Afv+9P/c9zkF4sBBGlf68zzr/MV+ClrqVCBXWAsTEjIoGCMqxhUxv1DGivK7Bm1IQd8iC4v7X2bw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <script>
+            // Aktiven Navigationslink anhand des aktuellen Pfads markieren.
+            (function () {
+                var path = location.pathname;
+                document.querySelectorAll('.navbar .nav-link').forEach(function (a) {
+                    var href = a.getAttribute('href');
+                    var isActive = href === '/' ? path === '/' : path.indexOf(href) === 0;
+                    if (isActive) {
+                        a.classList.add('active');
+                        a.setAttribute('aria-current', 'page');
+                    }
+                });
+            })();
+        </script>
     </body>
 </html>

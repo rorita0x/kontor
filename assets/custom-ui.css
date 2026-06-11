@@ -1,0 +1,125 @@
+/* ===========================================================================
+   custom-ui.css — UI-Feinschliff, geladen NACH styles.css (kompiliertes Bootstrap)
+   Bewusst klein gehalten; überschreibt nur gezielt. Kein SCSS-Rebuild nötig.
+   =========================================================================== */
+
+:root {
+  --tdb-card-bg: #1d2748;
+  --tdb-card-border: rgba(255, 255, 255, 0.15);
+  --tdb-card-border-hover: rgba(168, 70, 159, 0.8);
+}
+
+/* --- Navigation: aktiver Link sichtbar hervorheben ------------------------ */
+.navbar .nav-link {
+  border-radius: 0.375rem;
+  padding-inline: 0.75rem;
+  opacity: 0.75;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+.navbar .nav-link:hover {
+  opacity: 1;
+}
+.navbar .nav-link.active {
+  opacity: 1;
+  font-weight: 600;
+  background-color: rgba(168, 70, 159, 0.25);
+  color: #fff;
+}
+
+/* --- Kennzahlen-Leiste ---------------------------------------------------- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.75rem;
+}
+.stat-card {
+  background: var(--tdb-card-bg);
+  border: 1px solid var(--tdb-card-border);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.stat-card .stat-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.55);
+}
+.stat-card .stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+/* --- Trade-Karten --------------------------------------------------------- */
+/* Übersteuert das harte `border border-white` aus dem Markup. */
+.trade-card.border-white,
+.trade-card {
+  border-color: var(--tdb-card-border) !important;
+  border-radius: 0.75rem !important;
+  background: var(--tdb-card-bg);
+  transition: border-color 0.15s ease, transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.trade-card:hover {
+  border-color: var(--tdb-card-border-hover) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 0.5rem 1.25rem rgba(0, 0, 0, 0.35);
+}
+
+/* Ergebnis-Badge */
+.result-badge {
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  padding: 0.3em 0.6em;
+  border-radius: 999px;
+}
+
+/* Kleine Meta-Zeilen statt Inline-Styles (font-size:0.85em) */
+.meta-sm {
+  font-size: 0.85em;
+}
+
+/* Aktionsbuttons auf den Karten: einheitlich rund statt eckig */
+.trade-card .card-actions .btn {
+  border-radius: 0.5rem !important;
+  width: 2.1rem;
+  height: 2.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+/* --- Such-/Sortierleiste -------------------------------------------------- */
+.list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.list-toolbar .search-input {
+  flex: 1 1 220px;
+  min-width: 160px;
+}
+
+/* --- Filter-Dropdown-Buttons: auf Mobil volle Breite ---------------------- */
+@media (max-width: 767.98px) {
+  .filter-trade-width {
+    width: 100% !important;
+  }
+}
+.filter-trade-width {
+  width: 25%;
+}
+
+/* --- Empty-State ---------------------------------------------------------- */
+.empty-state {
+  border: 1px dashed var(--tdb-card-border);
+  border-radius: 0.75rem;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+}

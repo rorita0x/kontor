@@ -2,10 +2,12 @@
 
 {{define "content"}}
 <div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-        <a class="btn btn-primary" href="/add">Neuer Eintrag</a>
-
-        <a class="btn btn-success" data-fslightbox="info" href="#links">Hilfe</a>
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h1 class="h3 mb-0">Übersicht</h1>
+        <div class="d-flex gap-2">
+            <a class="btn btn-primary" href="/add">Neuer Eintrag</a>
+            <a class="btn btn-outline-light" data-fslightbox="info" href="#links">Hilfe</a>
+        </div>
     </div>
 
     <div style="display: none">
@@ -27,6 +29,33 @@
         <a href="/settings" class="btn btn-outline-light btn-sm ms-auto">Einstellungen</a>
     </div>
 
+    <!-- Kennzahlen -->
+    {{ if and .stats .stats.Total }}
+    <div class="stat-grid mb-3">
+        <div class="stat-card">
+            <span class="stat-label">Trades</span>
+            <span class="stat-value">{{ .stats.Total }}</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">Offen</span>
+            <span class="stat-value text-info">{{ .stats.Open }}</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">Gewinn / Verlust</span>
+            <span class="stat-value"><span class="text-success">{{ .stats.Wins }}</span> / <span class="text-danger">{{ .stats.Losses }}</span></span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">Win-Rate</span>
+            <span class="stat-value">{{ if or .stats.Wins .stats.Losses }}{{ .stats.WinRate }}%{{ else }}&ndash;{{ end }}</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">Offenes Risiko</span>
+            <span class="stat-value">{{ .stats.OpenRisk }} &euro;</span>
+            {{ if .accountSize }}<span class="meta-sm text-secondary">{{ .stats.OpenRiskPct }}% vom Konto</span>{{ end }}
+        </div>
+    </div>
+    {{ end }}
+
     {{if .classRisk}}
     <div class="mb-3 p-3 border border-secondary rounded-2">
         <b>Offenes Risiko nach Asset-Klasse</b>
@@ -40,7 +69,7 @@
                     <td>{{.Class}}</td>
                     <td>{{.TradeCount}}</td>
                     <td>{{.TotalRiskAmount}}</td>
-                    <td>{{.TotalRisk}}%</td>
+                    <td class="text-info">{{.TotalRisk}}%</td>
                 </tr>
                 {{end}}
             </tbody>
@@ -48,6 +77,14 @@
     </div>
     {{end}}
 
+    <!-- Filter (einklappbar) -->
+    <div class="mb-1">
+        <button class="btn btn-outline-light btn-sm" type="button" data-bs-toggle="collapse"
+                data-bs-target="#filterPanel" aria-expanded="{{ if .filter }}true{{ else }}false{{ end }}" aria-controls="filterPanel">
+            <i class="fa fa-filter me-1"></i> Filter{{ if .filter }} (aktiv){{ end }}
+        </button>
+    </div>
+    <div class="collapse {{ if .filter }}show{{ end }}" id="filterPanel">
     <form method="POST">
         <b>Filter</b>
 
@@ -75,8 +112,8 @@
             </ul>
         </div>
 
-        <div class="d-flex justify-content-between align-items-center mb-2 mt-1">
-            <div class="dropdown w-25">
+        <div class="d-flex justify-content-between align-items-center mb-2 mt-1 gap-3 flex-wrap">
+            <div class="dropdown filter-trade-width">
                 <button class="btn btn-light dropdown-toggle w-100 text-start" type="button"
                         id="dropdownMenuButtonTrade" data-bs-toggle="dropdown" aria-expanded="false">
                     Trade
@@ -86,7 +123,7 @@
                     <li>
                         <label class="dropdown-item">
                             <input class="form-check-input select-all" type="checkbox">
-                            Select All
+                            Alle auswählen
                         </label>
                     </li>
                     <li>
@@ -152,24 +189,44 @@
             <a class="btn btn-outline-light" href="/">Zurücksetzen</a>
         </div>
     </form>
-    <div class="row gap-3">
+    </div>
+
+    {{ if .trades }}
+    <!-- Such-/Sortierleiste (clientseitig) -->
+    <div class="list-toolbar my-3">
+        <input type="search" id="tradeSearch" class="form-control search-input"
+               placeholder="Suchen (Symbol, Tags, Notiz)…" aria-label="Trades durchsuchen" autocomplete="off">
+        <select id="tradeSort" class="form-select w-auto" aria-label="Sortierung">
+            <option value="newest">Neueste zuerst</option>
+            <option value="oldest">Älteste zuerst</option>
+            <option value="risk">Höchstes Risiko</option>
+        </select>
+        <span id="tradeCount" class="text-secondary meta-sm ms-auto"></span>
+    </div>
+
+    <div class="row gap-3" id="tradeList">
         {{range .trades}}
-            <div class="col-12 col-md-6 col-lg-3 border border-white rounded-2 my-2 px-3 pb-3 pt-1">
-                <div class="d-flex flex-column float-end gap-2 my-2">
-                    <a href="/edit/{{.Pk}}" class="btn btn-success btn-sm rounded-0" type="button" title="Bearbeiten" aria-label="Eintrag bearbeiten"><i class="fa fa-edit"></i></a>
-                    <button data-bs-toggle="modal" data-bs-target="#confirmDeleteModal-{{.Pk}}" class="btn btn-danger btn-sm rounded-0 cursor-warning" type="button" title="Löschen" aria-label="Eintrag löschen"><i class="fa fa-trash"></i></button>
+            <div class="trade-card col-12 col-md-6 col-lg-3 border my-2 px-3 pb-3 pt-1"
+                 data-symbol="{{.Symbol}}"
+                 data-tags="{{range .Tags}}{{.}} {{end}}"
+                 data-notes="{{.Notes}}"
+                 data-date="{{ if not .CreatedAt.IsZero }}{{ .CreatedAt.Unix }}{{ else }}0{{ end }}"
+                 data-risk="{{ if .RiskAmount }}{{ .RiskAmount }}{{ else }}0{{ end }}">
+                <div class="card-actions d-flex flex-column float-end gap-2 my-2">
+                    <a href="/edit/{{.Pk}}" class="btn btn-success btn-sm" type="button" title="Bearbeiten" aria-label="Eintrag bearbeiten"><i class="fa fa-edit"></i></a>
+                    <button data-bs-toggle="modal" data-bs-target="#confirmDeleteModal-{{.Pk}}" class="btn btn-danger btn-sm" type="button" title="Löschen" aria-label="Eintrag löschen"><i class="fa fa-trash"></i></button>
                 </div>
 
                 <span class="d-block">
                     <b>{{.Symbol}}</b> &middot; <b class="text-uppercase">{{.Traded}}</b>
                 </span>
                 {{if not .CreatedAt.IsZero}}
-                <span class="d-block text-secondary" style="font-size:0.85em">
+                <span class="d-block text-secondary meta-sm">
                     {{.CreatedAt.Format "02.01.2006 15:04"}}
                 </span>
                 {{end}}
-                <span class="d-block">
-                    Ergebnis: <b class="text-uppercase {{if .Result.IsCorrect}}text-success{{else}}text-danger{{end}}">{{.Result}}</b>
+                <span class="d-block my-1">
+                    <span class="result-badge text-bg-{{.Result.Color}}">{{.Result.Display}}</span>
                 </span>
                 {{if .EntryPrice}}
                 <span class="d-block">
@@ -182,7 +239,7 @@
                 </span>
                 {{end}}
                 {{if .RiskFromSL}}
-                <span class="d-block text-secondary" style="font-size:0.85em">
+                <span class="d-block text-secondary meta-sm">
                     SL-Abstand: {{.RiskFromSL}}%
                 </span>
                 {{end}}
@@ -202,16 +259,16 @@
                 </span>
                 {{end}}
                 {{if .Exits}}
-                <span class="d-block text-secondary" style="font-size:0.85em">
+                <span class="d-block text-secondary meta-sm">
                     {{len .Exits}} Exit(s):{{range .Exits}} {{.Quantity}}% @{{.Price}}{{end}}
                 </span>
                 {{end}}
-                <div class="d-flex gap-1 my-2">
+                <div class="d-flex flex-wrap gap-1 my-2">
                     {{range .Tags}}
                         <span class="tag">{{.}}</span>
                     {{end}}
                 </div>
-                <div class="d-flex gap-3">
+                <div class="d-flex gap-3 flex-wrap">
                     {{range .Screenshots}}
                         <a target="_blank" href="/files/{{.}}" data-fslightbox="screenshots-{{$.Pk}}">
                             <img class="screenshot img-thumbnail" src="/files/{{.}}" />
@@ -240,6 +297,18 @@
             </div>
         {{end}}
     </div>
+    <div id="noResults" class="empty-state d-none">Keine Trades passen zur Suche.</div>
+    {{ else }}
+    <div class="empty-state my-4">
+        {{ if .filter }}
+        <p class="mb-3">Keine Trades passen zu den gewählten Filtern.</p>
+        <a class="btn btn-outline-light" href="/">Filter zurücksetzen</a>
+        {{ else }}
+        <p class="mb-3">Noch keine Trades dokumentiert.</p>
+        <a class="btn btn-primary" href="/add">Ersten Eintrag anlegen</a>
+        {{ end }}
+    </div>
+    {{ end }}
 </div>
 
 <script>
@@ -258,7 +327,7 @@
                 .filter(cb => cb.checked)
                 .map(cb => cb.value);
             button.textContent = selected.length === checkboxes.length && checkboxes.length > 0
-                ? button.getAttribute('data-default-text') + ': All selected'
+                ? button.getAttribute('data-default-text') + ': Alle ausgewählt'
                 : (selected.length > 0 ? button.getAttribute('data-default-text') + ': ' + selected.join(', ') : button.getAttribute('data-default-text'));
         }
 
@@ -279,6 +348,52 @@
         // initialize
         updateButtonText();
     });
+
+    // Clientseitige Suche & Sortierung über die gerenderten Trade-Karten.
+    (function () {
+        const list = document.getElementById('tradeList');
+        if (!list) return;
+        const search = document.getElementById('tradeSearch');
+        const sortSel = document.getElementById('tradeSort');
+        const countEl = document.getElementById('tradeCount');
+        const noResults = document.getElementById('noResults');
+        const cards = Array.from(list.querySelectorAll('.trade-card'));
+
+        function searchText(card) {
+            return ((card.dataset.symbol || '') + ' ' +
+                    (card.dataset.tags || '') + ' ' +
+                    (card.dataset.notes || '')).toLowerCase();
+        }
+
+        function applyFilter() {
+            const q = (search.value || '').trim().toLowerCase();
+            let visible = 0;
+            cards.forEach(card => {
+                const match = !q || searchText(card).includes(q);
+                card.classList.toggle('d-none', !match);
+                if (match) visible++;
+            });
+            countEl.textContent = visible + ' von ' + cards.length;
+            noResults.classList.toggle('d-none', visible !== 0);
+        }
+
+        function applySort() {
+            const mode = sortSel.value;
+            const sorted = cards.slice().sort((a, b) => {
+                if (mode === 'risk') {
+                    return parseFloat(b.dataset.risk || 0) - parseFloat(a.dataset.risk || 0);
+                }
+                const da = parseInt(a.dataset.date || 0, 10);
+                const db = parseInt(b.dataset.date || 0, 10);
+                return mode === 'oldest' ? da - db : db - da;
+            });
+            sorted.forEach(card => list.appendChild(card));
+        }
+
+        search.addEventListener('input', applyFilter);
+        sortSel.addEventListener('change', applySort);
+        applyFilter();
+    })();
 </script>
 
 {{end}}
