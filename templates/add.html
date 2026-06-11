@@ -1,16 +1,11 @@
-{{define "title"}}Entry hinzufügen{{end}}
+{{define "title"}}{{ if .trade }}Eintrag bearbeiten{{ else }}Eintrag hinzufügen{{ end }}{{end}}
 
 {{define "content"}}
 <div
         class="container"
-        hx-ext="alpine-interop"
             x-data='{
                     tags: {{ toJSON .tags }},
                     symbols: {{ toJSON .symbols }},
-                    assetClasses: {{ toJSON .assetClasses }},
-                    replaceTags(data, elt) { this.tags = data; },
-                    replaceSymbols(data, elt) { this.symbols = data; },
-                    replaceAssetClasses(data, elt) { this.assetClasses = data; },
 
                     selectedTags: {{ if .trade }}{{ toJSON .trade.Tags }}{{ else }}[]{{ end }},
                     isSelected(tag) { return this.selectedTags.includes(tag); },
@@ -60,10 +55,22 @@
                     },
             }'
 >
+    <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
+        <h3 class="mb-0">{{ if .trade }}Eintrag bearbeiten{{ else }}Neuer Eintrag{{ end }}</h3>
+        <a href="/" class="btn btn-outline-light btn-sm">&larr; Zurück zur Übersicht</a>
+    </div>
+
     <form
+            class="needs-validation"
+            novalidate
             method="POST"
             action="/insert"
             enctype="multipart/form-data"
+            @submit='
+                if (!$event.target.checkValidity()) { $event.preventDefault(); $event.target.classList.add("was-validated"); return; }
+                $event.target.classList.add("was-validated");
+                $event.target.querySelector("button[type=submit]").disabled = true;
+            '
     >
         {{ if .trade }}
         <input type="hidden" name="id" value="{{ .trade.Pk }}" />
@@ -80,6 +87,7 @@
                 </option>
             </template>
         </select>
+        <div class="invalid-feedback">Bitte ein Asset auswählen.</div>
 
         <!-- Traded -->
         <div class="mt-2">
@@ -90,6 +98,7 @@
                 <option value="long"  {{ if and .trade (eq .trade.Traded "long") }}selected{{ end }}>Long</option>
                 <option value="short" {{ if and .trade (eq .trade.Traded "short") }}selected{{ end }}>Short</option>
             </select>
+            <div class="invalid-feedback">Bitte die Trade-Richtung wählen.</div>
         </div>
 
         <!-- Result -->
@@ -102,6 +111,7 @@
             <option value="loss"         {{ if and .trade (eq .trade.Result "loss") }}selected{{ end }}>Loss</option>
             <option value="break-even"   {{ if and .trade (eq .trade.Result "break-even") }}selected{{ end }}>Break-Even</option>
         </select>
+        <div class="invalid-feedback">Bitte ein Ergebnis wählen.</div>
 
         <!-- Entry + Stoploss -->
         <div class="row mt-2">
@@ -145,7 +155,7 @@
                         <span>(<b x-text="riskPercent.toFixed(2)"></b> % vom Konto)</span>
                     </template>
                     <template x-if="accountSize <= 0">
-                        <span class="text-secondary">— Kontogröße auf der Startseite setzen für %-Anzeige</span>
+                        <span class="text-secondary">— Kontogröße in den Einstellungen setzen für %-Anzeige</span>
                     </template>
                 </span>
             </template>
@@ -167,7 +177,7 @@
                            x-model="exits[i].price" placeholder="Preis">
                     <input class="form-control" type="number" step="1" min="0" max="100"
                            x-model="exits[i].qty" placeholder="% der Position">
-                    <button type="button" class="btn btn-danger btn-sm flex-shrink-0" @click="removeExit(i)">
+                    <button type="button" class="btn btn-danger btn-sm flex-shrink-0" @click="removeExit(i)" aria-label="Exit entfernen">
                         <i class="fa fa-trash"></i>
                     </button>
                 </div>
@@ -183,21 +193,31 @@
         <div class="my-3">
             <label for="files" class="form-label">Screenshots</label>
 
-            <div class="d-flex gap-3 mb-3">
-                {{ if and .trade .trade.Screenshots }}
+            {{ if and .trade .trade.Screenshots }}
+            <div class="d-flex gap-3 mb-3 flex-wrap">
                 {{ range $i, $img := .trade.Screenshots }}
-                <div class="position-relative">
-                    <input style="display: none;" type="checkbox" class="hide-label-if-checked" name="screenshots[]" id="screenshot-{{$i}}" value="{{.}}" checked />
+                <div class="position-relative" x-data="{ keep: true }">
+                    <input type="checkbox" class="d-none" name="screenshots[]" value="{{.}}" x-model="keep" />
 
                     <a class="d-flex" target="_blank" href="/files/{{.}}" data-fslightbox="screenshots">
-                        <img class="screenshot img-thumbnail" src="/files/{{.}}" />
+                        <img class="screenshot img-thumbnail" src="/files/{{.}}" :style="keep ? '' : 'opacity:0.35'" />
                     </a>
 
-                    <label for="screenshot-{{$i}}" class="btn btn-danger btn-sm rounded-0 position-absolute top-0 opacity-75 cursor-warning" type="button" data-toggle="tooltip" data-placement="top" title="Delete"><i class="fa fa-trash"></i></label>
+                    <button type="button"
+                            class="btn btn-sm rounded-0 position-absolute top-0 start-0"
+                            :class="keep ? 'btn-danger opacity-75' : 'btn-secondary'"
+                            @click="keep = !keep"
+                            :aria-label="keep ? 'Screenshot zum Entfernen markieren' : 'Entfernen rückgängig machen'"
+                            :title="keep ? 'Screenshot entfernen' : 'Wiederherstellen'">
+                        <i class="fa" :class="keep ? 'fa-trash' : 'fa-rotate-left'"></i>
+                    </button>
+
+                    <span class="badge bg-warning text-dark position-absolute bottom-0 start-0 m-1" x-show="!keep" x-cloak>wird entfernt</span>
                 </div>
                 {{ end }}
-                {{ end }}
             </div>
+            <small class="text-secondary d-block mb-2">Mit dem Papierkorb-Symbol markierst du ein Bild zum Entfernen — gespeichert wird die Änderung erst beim Klick auf „Speichern".</small>
+            {{ end }}
 
             <input class="form-control form-control-lg" name="files" id="files" type="file" multiple>
         </div>
@@ -209,6 +229,7 @@
         </div>
 
         <!-- Tags -->
+        <label class="form-label">Tags</label>
         <div class="d-flex flex-wrap gap-2" id="tags">
             <template x-for="tag in tags" :key="tag">
                 <div>
@@ -220,123 +241,11 @@
             </template>
         </div>
 
-        <button class="btn btn-primary mt-3" type="submit">{{ if .trade }}Speichern{{else}}Hinzufügen{{ end }}</button>
+        <!-- Aktionsleiste -->
+        <div class="d-flex gap-2 mt-4 mb-5">
+            <button class="btn btn-primary" type="submit">{{ if .trade }}Speichern{{else}}Hinzufügen{{ end }}</button>
+            <a href="/" class="btn btn-outline-light">Abbrechen</a>
+        </div>
     </form>
-
-    <!-- Tag / Symbol Management -->
-    <div class="row justify-content-between mt-4">
-        <div class="col-12 col-md-2">
-            <form
-                    class="me-4"
-                    method="post"
-                    action="/add-tag"
-                    hx-post="/add-tag"
-                    hx-handle-json="replaceTags"
-                    hx-on::after-request="if(event.detail.successful) this.reset()">
-
-                <input required placeholder="Tag Title" class="form-control" type="text" name="Title" />
-
-                <button class="btn btn-light mt-3" type="submit">Add Tag</button>
-            </form>
-        </div>
-        <div class="col-12 col-md-10">
-            <form
-                    method="post"
-                    action="/remove-tag"
-                    hx-post="/remove-tag"
-                    hx-handle-json="replaceTags"
-            >
-
-                <div class="d-flex flex-wrap gap-2" id="rm-tags">
-                    <template x-for="tag in tags" :key="tag">
-                        <div>
-                            <input type="radio" class="btn-check" :id="`rmtags-${tag}`" name="Title" :value="`${tag}`" autocomplete="off">
-                            <label class="btn btn-outline-light btn-sm" :for="`rmtags-${tag}`" x-text="tag"></label>
-                        </div>
-                    </template>
-                </div>
-                <button class="btn btn-danger mt-3" type="submit">Remove Tag</button>
-            </form>
-        </div>
-    </div>
-    <div class="row justify-content-between">
-        <div class="col-12 col-md-2">
-            <form
-                    class="me-4"
-                    method="post"
-                    action="/add-symbol"
-                    hx-post="/add-symbol"
-                    hx-handle-json="replaceSymbols"
-                    hx-on::after-request="if(event.detail.successful) this.reset()">
-
-                <input required placeholder="Asset Symbol" class="form-control" type="text" name="Symbol" />
-
-                <select name="assetClass" class="form-select mt-2">
-                    <option value="">Keine Klasse</option>
-                    <template x-for="cls in assetClasses">
-                        <option :value="cls" x-text="cls"></option>
-                    </template>
-                </select>
-
-                <button class="btn btn-light mt-3" type="submit">Add Asset</button>
-            </form>
-        </div>
-        <div class="col-12 col-md-10">
-            <form
-                    method="post"
-                    action="/remove-symbol"
-                    hx-post="/remove-symbol"
-                    hx-handle-json="replaceSymbols"
-            >
-
-                <div class="d-flex flex-wrap gap-2" id="rm-symbols">
-                    <template x-for="tag in symbols" :key="tag">
-                        <div>
-                            <input type="radio" class="btn-check" :id="`rmtags-${tag}`" name="Symbol" :value="`${tag}`" autocomplete="off">
-                            <label class="btn btn-outline-light btn-sm" :for="`rmtags-${tag}`" x-text="tag"></label>
-                        </div>
-                    </template>
-                </div>
-                <button class="btn btn-danger mt-3" type="submit">Remove Asset</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Asset Class Management -->
-    <div class="row justify-content-between mt-2">
-        <div class="col-12 col-md-2">
-            <form
-                    class="me-4"
-                    method="post"
-                    action="/add-asset-class"
-                    hx-post="/add-asset-class"
-                    hx-handle-json="replaceAssetClasses"
-                    hx-on::after-request="if(event.detail.successful) this.reset()">
-
-                <input required placeholder="Klassen-Name" class="form-control" type="text" name="Title" />
-
-                <button class="btn btn-light mt-3" type="submit">Add Asset Class</button>
-            </form>
-        </div>
-        <div class="col-12 col-md-10">
-            <form
-                    method="post"
-                    action="/remove-asset-class"
-                    hx-post="/remove-asset-class"
-                    hx-handle-json="replaceAssetClasses"
-            >
-
-                <div class="d-flex flex-wrap gap-2">
-                    <template x-for="cls in assetClasses" :key="cls">
-                        <div>
-                            <input type="radio" class="btn-check" :id="`rmcls-${cls}`" name="Title" :value="cls" autocomplete="off">
-                            <label class="btn btn-outline-light btn-sm" :for="`rmcls-${cls}`" x-text="cls"></label>
-                        </div>
-                    </template>
-                </div>
-                <button class="btn btn-danger mt-3" type="submit">Remove Asset Class</button>
-            </form>
-        </div>
-    </div>
 </div>
 {{end}}

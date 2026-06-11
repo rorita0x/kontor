@@ -1,0 +1,156 @@
+{{define "title"}}Einstellungen{{end}}
+
+{{define "content"}}
+<div
+        class="container"
+        hx-ext="alpine-interop"
+        x-data='{
+                tags: {{ toJSON .tags }},
+                symbols: {{ toJSON .symbols }},
+                assetClasses: {{ toJSON .assetClasses }},
+                replaceTags(data, elt) { this.tags = data; },
+                replaceSymbols(data, elt) { this.symbols = data; },
+                replaceAssetClasses(data, elt) { this.assetClasses = data; },
+        }'
+>
+    <h3 class="mb-3">Einstellungen</h3>
+
+    <!-- Kontogröße -->
+    <div class="mb-4 p-3 border border-secondary rounded-2">
+        <b>Kontogröße (Portfolio)</b>
+        <form class="mt-2 d-flex align-items-end gap-2 flex-wrap" method="POST" action="/settings">
+            <div>
+                <label for="accountSize" class="form-label mb-1">Kontowert in Kontowährung</label>
+                <input name="accountSize" id="accountSize" class="form-control"
+                       type="number" step="any" min="0" value="{{ .accountSize }}">
+            </div>
+            <button class="btn btn-primary" type="submit">Speichern</button>
+            {{ if not .accountSize }}
+            <span class="text-warning align-self-center">Bitte setzen, damit Risiko-% berechnet werden kann.</span>
+            {{ end }}
+        </form>
+    </div>
+
+    <!-- Tag-Verwaltung -->
+    <div class="mb-4 p-3 border border-secondary rounded-2">
+        <b>Tags</b>
+        <div class="row justify-content-between mt-2">
+            <div class="col-12 col-md-3">
+                <form
+                        method="post"
+                        action="/add-tag"
+                        hx-post="/add-tag"
+                        hx-handle-json="replaceTags"
+                        hx-on::after-request="if(event.detail.successful) this.reset()">
+
+                    <input required placeholder="Tag-Name" class="form-control" type="text" name="Title" />
+                    <button class="btn btn-light mt-2" type="submit">Tag hinzufügen</button>
+                </form>
+            </div>
+            <div class="col-12 col-md-9">
+                <form
+                        method="post"
+                        action="/remove-tag"
+                        hx-post="/remove-tag"
+                        hx-handle-json="replaceTags">
+
+                    <div class="d-flex flex-wrap gap-2" id="rm-tags">
+                        <template x-for="tag in tags" :key="tag">
+                            <div>
+                                <input type="radio" class="btn-check" :id="`rmtags-${tag}`" name="Title" :value="`${tag}`" autocomplete="off">
+                                <label class="btn btn-outline-light btn-sm" :for="`rmtags-${tag}`" x-text="tag"></label>
+                            </div>
+                        </template>
+                    </div>
+                    <button class="btn btn-danger mt-2" type="submit"
+                            @click="if(!confirm('Tag wirklich entfernen?')) $event.preventDefault()">Tag entfernen</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Symbol-Verwaltung -->
+    <div class="mb-4 p-3 border border-secondary rounded-2">
+        <b>Assets / Symbole</b>
+        <div class="row justify-content-between mt-2">
+            <div class="col-12 col-md-3">
+                <form
+                        method="post"
+                        action="/add-symbol"
+                        hx-post="/add-symbol"
+                        hx-handle-json="replaceSymbols"
+                        hx-on::after-request="if(event.detail.successful) this.reset()">
+
+                    <input required placeholder="Symbol (z. B. BTCUSD)" class="form-control" type="text" name="Symbol" />
+
+                    <select name="assetClass" class="form-select mt-2">
+                        <option value="">Keine Klasse</option>
+                        <template x-for="cls in assetClasses">
+                            <option :value="cls" x-text="cls"></option>
+                        </template>
+                    </select>
+
+                    <button class="btn btn-light mt-2" type="submit">Asset hinzufügen</button>
+                </form>
+            </div>
+            <div class="col-12 col-md-9">
+                <form
+                        method="post"
+                        action="/remove-symbol"
+                        hx-post="/remove-symbol"
+                        hx-handle-json="replaceSymbols">
+
+                    <div class="d-flex flex-wrap gap-2" id="rm-symbols">
+                        <template x-for="sym in symbols" :key="sym">
+                            <div>
+                                <input type="radio" class="btn-check" :id="`rmsym-${sym}`" name="Symbol" :value="`${sym}`" autocomplete="off">
+                                <label class="btn btn-outline-light btn-sm" :for="`rmsym-${sym}`" x-text="sym"></label>
+                            </div>
+                        </template>
+                    </div>
+                    <button class="btn btn-danger mt-2" type="submit"
+                            @click="if(!confirm('Asset wirklich entfernen?')) $event.preventDefault()">Asset entfernen</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Asset-Klassen-Verwaltung -->
+    <div class="mb-4 p-3 border border-secondary rounded-2">
+        <b>Asset-Klassen</b>
+        <div class="row justify-content-between mt-2">
+            <div class="col-12 col-md-3">
+                <form
+                        method="post"
+                        action="/add-asset-class"
+                        hx-post="/add-asset-class"
+                        hx-handle-json="replaceAssetClasses"
+                        hx-on::after-request="if(event.detail.successful) this.reset()">
+
+                    <input required placeholder="Klassen-Name" class="form-control" type="text" name="Title" />
+                    <button class="btn btn-light mt-2" type="submit">Klasse hinzufügen</button>
+                </form>
+            </div>
+            <div class="col-12 col-md-9">
+                <form
+                        method="post"
+                        action="/remove-asset-class"
+                        hx-post="/remove-asset-class"
+                        hx-handle-json="replaceAssetClasses">
+
+                    <div class="d-flex flex-wrap gap-2">
+                        <template x-for="cls in assetClasses" :key="cls">
+                            <div>
+                                <input type="radio" class="btn-check" :id="`rmcls-${cls}`" name="Title" :value="cls" autocomplete="off">
+                                <label class="btn btn-outline-light btn-sm" :for="`rmcls-${cls}`" x-text="cls"></label>
+                            </div>
+                        </template>
+                    </div>
+                    <button class="btn btn-danger mt-2" type="submit"
+                            @click="if(!confirm('Asset-Klasse wirklich entfernen?')) $event.preventDefault()">Klasse entfernen</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

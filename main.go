@@ -48,7 +48,7 @@ func loadTemplates() multitemplate.Renderer {
 
 	r.AddFromFilesFuncs("index", funcs, "templates/base.html", "templates/index.html")
 	r.AddFromFilesFuncs("add", funcs, "templates/base.html", "templates/add.html")
-	r.AddFromFilesFuncs("tags", funcs, "templates/tags.html")
+	r.AddFromFilesFuncs("settings", funcs, "templates/base.html", "templates/settings.html")
 
 	return r
 }

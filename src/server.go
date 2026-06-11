@@ -63,6 +63,24 @@ func computeClassRisk(trades []Trade, assets []Asset, accountSize F32) []ClassRi
 	return result
 }
 
+// flashMessage übersetzt einen kurzen Flash-Code (aus dem ?flash=-Query-Param)
+// in einen anzuzeigenden Text und einen Bootstrap-Alert-Typ. Unbekannte Codes
+// liefern leere Werte, sodass keine Meldung gerendert wird.
+func flashMessage(code string) (msg, typ string) {
+	switch code {
+	case "trade-saved":
+		return "Eintrag gespeichert.", "success"
+	case "trade-updated":
+		return "Eintrag aktualisiert.", "success"
+	case "trade-deleted":
+		return "Eintrag gelöscht.", "success"
+	case "settings-saved":
+		return "Einstellungen gespeichert.", "success"
+	default:
+		return "", ""
+	}
+}
+
 func CreateRoutes(db *storm.DB, r *gin.Engine) {
 
 	r.GET("/", func(c *gin.Context) {
@@ -95,12 +113,16 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 
 		settings := loadSettings(db)
 
+		flash, flashType := flashMessage(c.Query("flash"))
+
 		c.HTML(200, "index", gin.H{
 			"tags":        stringTags,
 			"symbols":     symbols,
 			"trades":      trades,
 			"classRisk":   computeClassRisk(trades, assets, settings.AccountSize),
 			"accountSize": settings.AccountSize,
+			"flash":       flash,
+			"flashType":   flashType,
 		})
 	})
 
@@ -227,6 +249,55 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 		})
 	})
 
+	r.GET("/settings", func(c *gin.Context) {
+		var tags []Tag
+		err := db.All(&tags, storm.Reverse())
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var stringTags []string
+		for _, tag := range tags {
+			stringTags = append(stringTags, tag.Title)
+		}
+
+		var assets []Asset
+		err = db.All(&assets)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var symbols []string
+		for _, symbol := range assets {
+			symbols = append(symbols, symbol.Symbol)
+		}
+
+		var assetClasses []AssetClass
+		err = db.All(&assetClasses)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var stringClasses []string
+		for _, cls := range assetClasses {
+			stringClasses = append(stringClasses, cls.Title)
+		}
+
+		flash, flashType := flashMessage(c.Query("flash"))
+
+		c.HTML(200, "settings", gin.H{
+			"tags":         stringTags,
+			"symbols":      symbols,
+			"assetClasses": stringClasses,
+			"accountSize":  loadSettings(db).AccountSize,
+			"flash":        flash,
+			"flashType":    flashType,
+		})
+	})
+
 	r.GET("/edit/:id", func(c *gin.Context) {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 0)
 
@@ -300,7 +371,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 		if c.GetHeader("HX-Request") != "" {
 			c.JSON(200, settings)
 		} else {
-			c.Redirect(302, "/")
+			c.Redirect(302, "/settings?flash=settings-saved")
 		}
 	})
 
@@ -320,7 +391,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			return
 		}
 
-		c.Redirect(302, "/")
+		c.Redirect(302, "/?flash=trade-deleted")
 	})
 
 	r.POST("/add-tag", func(c *gin.Context) {
@@ -349,7 +420,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 		if c.GetHeader("HX-Request") != "" {
 			c.JSON(200, stringTags)
 		} else {
-			c.Redirect(302, "/add")
+			c.Redirect(302, "/settings")
 		}
 	})
 
@@ -379,7 +450,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 		if c.GetHeader("HX-Request") != "" {
 			c.JSON(200, stringTags)
 		} else {
-			c.Redirect(302, "/add")
+			c.Redirect(302, "/settings")
 		}
 
 	})
@@ -410,7 +481,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 		if c.GetHeader("HX-Request") != "" {
 			c.JSON(200, symbols)
 		} else {
-			c.Redirect(302, "/add")
+			c.Redirect(302, "/settings")
 		}
 	})
 
@@ -440,7 +511,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 		if c.GetHeader("HX-Request") != "" {
 			c.JSON(200, symbols)
 		} else {
-			c.Redirect(302, "/add")
+			c.Redirect(302, "/settings")
 		}
 
 	})
@@ -471,7 +542,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 		if c.GetHeader("HX-Request") != "" {
 			c.JSON(200, stringClasses)
 		} else {
-			c.Redirect(302, "/add")
+			c.Redirect(302, "/settings")
 		}
 	})
 
@@ -501,7 +572,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 		if c.GetHeader("HX-Request") != "" {
 			c.JSON(200, stringClasses)
 		} else {
-			c.Redirect(302, "/add")
+			c.Redirect(302, "/settings")
 		}
 	})
 
@@ -513,6 +584,8 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			c.String(http.StatusBadRequest, err.Error())
 			return
 		}
+
+		isUpdate := trade.Pk != 0
 
 		if exitsJSON := c.PostForm("exitsJSON"); exitsJSON != "" {
 			json.Unmarshal([]byte(exitsJSON), &trade.Exits)
@@ -556,7 +629,10 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			return
 		}
 
-		// c.String(http.StatusOK, fmt.Sprintf("%d files uploaded!", len(files)))
-		c.Redirect(302, "/")
+		if isUpdate {
+			c.Redirect(302, "/?flash=trade-updated")
+		} else {
+			c.Redirect(302, "/?flash=trade-saved")
+		}
 	})
 }
