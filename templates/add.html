@@ -21,17 +21,40 @@
                     stopLoss: {{ if .trade }}{{ .trade.StopLoss }}{{ else }}0{{ end }},
                     quantity: {{ if .trade }}{{ .trade.Quantity }}{{ else }}0{{ end }},
                     positionValue: {{ if .trade }}{{ .trade.PositionValue }}{{ else }}0{{ end }},
+                    leverage: {{ if .trade }}{{ .trade.Leverage }}{{ else }}0{{ end }},
+                    margin: {{ if .trade }}{{ .trade.Margin }}{{ else }}0{{ end }},
 
                     syncFromQty() {
                         if (this.entryPrice > 0) this.positionValue = +(this.quantity * this.entryPrice).toFixed(2);
+                        this.recalcMargin();
                     },
                     syncFromValue() {
                         if (this.entryPrice > 0) this.quantity = +(this.positionValue / this.entryPrice).toFixed(8);
+                        this.recalcMargin();
                     },
                     onEntryChange() {
                         // Entry hat sich geändert: Positionswert aus Stückzahl neu ableiten (Menge bleibt führend)
                         if (this.quantity > 0) this.syncFromQty();
                         else this.syncFromValue();
+                    },
+
+                    // Notional = Positionswert (Gesamt-Exposure), notfalls aus Menge × Entry.
+                    get notional() {
+                        if (this.positionValue > 0) return this.positionValue;
+                        if (this.quantity > 0 && this.entryPrice > 0) return this.quantity * this.entryPrice;
+                        return 0;
+                    },
+                    syncMarginFromLeverage() {
+                        if (this.leverage > 0 && this.notional > 0) this.margin = +(this.notional / this.leverage).toFixed(2);
+                    },
+                    syncLeverageFromMargin() {
+                        if (this.margin > 0 && this.notional > 0) this.leverage = +(this.notional / this.margin).toFixed(2);
+                    },
+                    recalcMargin() {
+                        // Hebel ist führend: bei geändertem Notional die Margin neu berechnen,
+                        // sonst (nur Margin gesetzt) den Hebel ableiten.
+                        if (this.leverage > 0) this.syncMarginFromLeverage();
+                        else if (this.margin > 0) this.syncLeverageFromMargin();
                     },
                     get effectiveQty() {
                         if (this.quantity > 0) return this.quantity;
@@ -153,8 +176,8 @@
         <!-- Result -->
         <label class="form-label mt-2" for="result">Ergebnis</label>
         <select id="result" name="result" class="form-select" required>
-            <option value="" {{ if not .trade }}selected{{ end }}>-- Bitte ausfüllen --</option>
-            <option value="not finished" {{ if and .trade (eq .trade.Result "not finished") }}selected{{ end }}>Offen (noch nicht abgeschlossen)</option>
+            <option value="">-- Bitte ausfüllen --</option>
+            <option value="not finished" {{ if or (not .trade) (and .trade (eq .trade.Result "not finished")) }}selected{{ end }}>Offen (noch nicht abgeschlossen)</option>
             <option value="skip"         {{ if and .trade (eq .trade.Result "skip") }}selected{{ end }}>Skip</option>
             <option value="win"          {{ if and .trade (eq .trade.Result "win") }}selected{{ end }}>Gewinn</option>
             <option value="loss"         {{ if and .trade (eq .trade.Result "loss") }}selected{{ end }}>Verlust</option>
@@ -193,6 +216,26 @@
                        x-model.number="positionValue" @input="syncFromValue()">
             </div>
             <small class="text-secondary d-block mt-1">Es genügt, eines von beiden zu füllen — das andere wird aus dem Entry-Preis berechnet.</small>
+        </div>
+
+        <!-- Hebel & Margin -->
+        <div class="row mt-2">
+            <div class="col-6">
+                <label for="leverage" class="form-label">Hebel (x)</label>
+                <input name="leverage" id="leverage" class="form-control"
+                       type="number" step="any" min="0" placeholder="z.B. 10"
+                       x-model.number="leverage" @input="syncMarginFromLeverage()">
+            </div>
+            <div class="col-6">
+                <label for="margin" class="form-label">Margin (Kontowährung)</label>
+                <input name="margin" id="margin" class="form-control"
+                       type="number" step="any" min="0" placeholder="gebundenes Kapital"
+                       x-model.number="margin" @input="syncLeverageFromMargin()">
+            </div>
+            <small class="text-secondary d-block mt-1">
+                Hebel oder Margin eingeben — der jeweils andere Wert wird aus dem Positionswert
+                (<b x-text="notional.toFixed(2)"></b> &euro;) berechnet.
+            </small>
         </div>
 
         <!-- Live-Risiko-Vorschau -->

@@ -290,6 +290,11 @@
                     Positionswert: <b>{{.PositionValue}} &euro;</b>
                 </span>
                 {{end}}
+                {{if .Leverage}}
+                <span class="d-block">
+                    Hebel: <b>{{.Leverage}}x</b>{{if .Margin}} &middot; Margin: <b>{{.Margin}} &euro;</b>{{end}}
+                </span>
+                {{end}}
                 {{if .RiskAmount}}
                 <span class="d-block">
                     Risiko: <b>{{.RiskAmount}} &euro;{{ if $.accountSize }} ({{.RiskPercent $.accountSize}}%){{ end }}</b>

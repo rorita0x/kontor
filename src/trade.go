@@ -104,6 +104,8 @@ type Trade struct {
 	StopLoss      F32    `form:"stopLoss" json:"stopLoss"`
 	Quantity      F32    `form:"quantity" json:"quantity"`
 	PositionValue F32    `form:"positionValue" json:"positionValue"`
+	Leverage      F32    `form:"leverage" json:"leverage"`           // Hebel (z. B. 10 = 10x)
+	Margin        F32    `form:"margin" json:"margin"`               // gebundene Margin in Kontowährung
 	Exits         []Exit `json:"exits"`
 }
 
