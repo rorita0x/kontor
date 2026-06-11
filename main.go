@@ -53,7 +53,7 @@ func loadTemplates() multitemplate.Renderer {
 	return r
 }
 
-var ASSET_CLASSES = [...]string{"Crypto", "Commodities", "Forex", "Indices", "Metals", "Stocks"}
+var ASSET_CLASSES = [...]string{"Aktien", "Rohstoffe", "Edelmetalle", "Cash", "Real Estate", "Bonds"}
 
 var TAGS = [...]string{
 	"LSOB",
