@@ -84,10 +84,18 @@ func computeClassRisk(trades []Trade, assets []Asset, classes []AssetClass, acco
 
 // computeSymbolRisk aggregiert das offene Risiko je Symbol und vergleicht es mit
 // dem globalen Limit pro Asset (perAssetLimit in % vom Konto). Nur offene Trades.
-func computeSymbolRisk(trades []Trade, assets []Asset, perAssetLimit, accountSize F32) []SymbolRiskSummary {
+// Das freie Risiko berücksichtigt zusätzlich das noch freie Risiko im Sektor
+// (Asset-Klasse): es gilt der kleinere der beiden Werte (Sektor-Frei hat Vorrang,
+// wenn es enger ist), da ein neuer Trade auf dem Asset auch den Sektor belastet.
+func computeSymbolRisk(trades []Trade, assets []Asset, perAssetLimit, accountSize F32, classRisk []ClassRiskSummary) []SymbolRiskSummary {
 	symbolToClass := make(map[string]string, len(assets))
 	for _, a := range assets {
 		symbolToClass[a.Symbol] = a.AssetClass
+	}
+
+	classByName := make(map[string]ClassRiskSummary, len(classRisk))
+	for _, cr := range classRisk {
+		classByName[cr.Class] = cr
 	}
 
 	symbolRisk := make(map[string]SymbolRiskSummary)
@@ -112,6 +120,21 @@ func computeSymbolRisk(trades []Trade, assets []Asset, perAssetLimit, accountSiz
 			v.LimitAmount = perAssetLimit * accountSize / 100
 			v.FreePct = perAssetLimit - v.TotalRisk
 			v.FreeAmount = v.LimitAmount - v.TotalRiskAmount
+
+			// Sektor-Frei einbeziehen: ist im Sektor weniger frei als auf dem
+			// Asset, hat der kleinere (Sektor-)Wert Vorrang.
+			class := v.Class
+			if class == "" {
+				class = "Unclassified"
+			}
+			if cr, ok := classByName[class]; ok && cr.HasLimit {
+				sectorFreePct := cr.LimitPct - cr.TotalRisk
+				if sectorFreePct < v.FreePct {
+					v.FreePct = sectorFreePct
+					v.FreeAmount = cr.LimitAmount - cr.TotalRiskAmount
+					v.SectorBinds = true
+				}
+			}
 		}
 		result = append(result, v)
 	}
@@ -251,12 +274,14 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 
 		flash, flashType := flashMessage(c.Query("flash"))
 
+		classRisk := computeClassRisk(trades, assets, classes, settings.AccountSize)
+
 		c.HTML(200, "index", gin.H{
 			"tags":              stringTags,
 			"symbols":           symbols,
 			"trades":            trades,
-			"classRisk":         computeClassRisk(trades, assets, classes, settings.AccountSize),
-			"symbolRisk":        computeSymbolRisk(trades, assets, settings.PerAssetRiskLimit, settings.AccountSize),
+			"classRisk":         classRisk,
+			"symbolRisk":        computeSymbolRisk(trades, assets, settings.PerAssetRiskLimit, settings.AccountSize, classRisk),
 			"perAssetRiskLimit": settings.PerAssetRiskLimit,
 			"stats":             computeStats(trades, settings.AccountSize),
 			"accountSize":       settings.AccountSize,
@@ -344,13 +369,15 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 
 		settings := loadSettings(db)
 
+		classRisk := computeClassRisk(trades, assets, classes, settings.AccountSize)
+
 		c.HTML(200, "index", gin.H{
 			"tags":              stringTags,
 			"symbols":           symbols,
 			"trades":            filteredTrades,
 			"filter":            filter,
-			"classRisk":         computeClassRisk(trades, assets, classes, settings.AccountSize),
-			"symbolRisk":        computeSymbolRisk(trades, assets, settings.PerAssetRiskLimit, settings.AccountSize),
+			"classRisk":         classRisk,
+			"symbolRisk":        computeSymbolRisk(trades, assets, settings.PerAssetRiskLimit, settings.AccountSize, classRisk),
 			"perAssetRiskLimit": settings.PerAssetRiskLimit,
 			"stats":             computeStats(filteredTrades, settings.AccountSize),
 			"accountSize":       settings.AccountSize,

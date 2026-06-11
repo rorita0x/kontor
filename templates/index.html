@@ -102,7 +102,7 @@
                     <td class="text-info">{{.TotalRisk}}%</td>
                     {{if .HasLimit}}
                     <td>{{.LimitPct}}%{{if $.accountSize}} ({{.LimitAmount}}&euro;){{end}}</td>
-                    <td class="{{if lt .FreePct 0.0}}text-danger{{else}}text-success{{end}}">{{.FreePct}}%{{if $.accountSize}} ({{.FreeAmount}}&euro;){{end}}</td>
+                    <td class="{{if lt .FreePct 0.0}}text-danger{{else}}text-success{{end}}">{{.FreePct}}%{{if $.accountSize}} ({{.FreeAmount}}&euro;){{end}}{{if .SectorBinds}} <span class="badge bg-secondary" title="Sektor-Limit ist die engere Grenze">Sektor</span>{{end}}</td>
                     {{else}}
                     <td class="text-secondary">&ndash;</td>
                     <td class="text-secondary">&ndash;</td>

@@ -197,8 +197,9 @@ type SymbolRiskSummary struct {
 	HasLimit        bool
 	LimitPct        F32
 	LimitAmount     F32
-	FreePct         F32
+	FreePct         F32  // effektiv freies Risiko = min(Asset-frei, Sektor-frei)
 	FreeAmount      F32
+	SectorBinds     bool // true, wenn das Sektor-Limit die kleinere (bindende) Grenze ist
 }
 
 // StatsSummary fasst Kennzahlen über eine Menge von Trades zusammen

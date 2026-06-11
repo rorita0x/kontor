@@ -128,6 +128,16 @@
                     get projClassPct() { return this.existClass.pct + this.riskPercent; },
                     get projClassAmount() { return this.existClass.amount + this.riskAmount; },
 
+                    // Freies Risiko nach diesem Eintrag.
+                    get assetFreePct() { return this.assetLimitPct - this.projSymbolPct; },
+                    get assetFreeAmount() { return (this.assetLimitPct * this.accountSize / 100) - this.projSymbolAmount; },
+                    get classFreePct() { return this.classLimitPct - this.projClassPct; },
+                    get classFreeAmount() { return (this.classLimitPct * this.accountSize / 100) - this.projClassAmount; },
+                    // Effektiv frei fürs Asset: Sektor-Frei wird einbezogen, der kleinere Wert gewinnt.
+                    get sectorBinds() { return this.classLimitPct > 0 && this.classFreePct < this.assetFreePct; },
+                    get effAssetFreePct() { return this.sectorBinds ? this.classFreePct : this.assetFreePct; },
+                    get effAssetFreeAmount() { return this.sectorBinds ? this.classFreeAmount : this.assetFreeAmount; },
+
                     // Einheitliche Anzeige: mit Konto "P% (A €)", sonst nur "A €".
                     fmt(pct, amount) {
                         if (this.accountSize > 0) return pct.toFixed(2) + "% (" + amount.toFixed(2) + " €)";
@@ -184,8 +194,8 @@
                         <td x-text="fmt(existSymbol.pct, existSymbol.amount)"></td>
                         <td x-text="fmt(projSymbolPct, projSymbolAmount)"></td>
                         <td x-text="assetLimitPct > 0 ? fmt(assetLimitPct, assetLimitPct * accountSize / 100) : '—'"></td>
-                        <td :class="assetLimitPct > 0 && (assetLimitPct - projSymbolPct) < 0 ? 'text-danger' : 'text-success'"
-                            x-text="assetLimitPct > 0 ? fmt(assetLimitPct - projSymbolPct, (assetLimitPct * accountSize / 100) - projSymbolAmount) : '—'"></td>
+                        <td :class="assetLimitPct > 0 && effAssetFreePct < 0 ? 'text-danger' : 'text-success'"
+                            x-text="assetLimitPct > 0 ? (fmt(effAssetFreePct, effAssetFreeAmount) + (sectorBinds ? ' (Sektor)' : '')) : '—'"></td>
                     </tr>
                     <tr>
                         <td>Klasse <b x-text="selClass || 'Unclassified'"></b></td>
