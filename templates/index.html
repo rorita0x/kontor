@@ -61,7 +61,7 @@
         <b>Offenes Risiko nach Asset-Klasse</b>
         <table class="table table-sm table-dark mt-2 mb-0">
             <thead>
-                <tr><th>Klasse</th><th>Trades</th><th>Risiko &euro;</th><th>Risiko %</th></tr>
+                <tr><th>Klasse</th><th>Trades</th><th>Risiko &euro;</th><th>Risiko %</th><th>Limit</th><th>Frei</th></tr>
             </thead>
             <tbody>
                 {{range .classRisk}}
@@ -70,6 +70,43 @@
                     <td>{{.TradeCount}}</td>
                     <td>{{.TotalRiskAmount}}</td>
                     <td class="text-info">{{.TotalRisk}}%</td>
+                    {{if .HasLimit}}
+                    <td>{{.LimitPct}}%{{if $.accountSize}} ({{.LimitAmount}}&euro;){{end}}</td>
+                    <td class="{{if lt .FreePct 0.0}}text-danger{{else}}text-success{{end}}">{{.FreePct}}%{{if $.accountSize}} ({{.FreeAmount}}&euro;){{end}}</td>
+                    {{else}}
+                    <td class="text-secondary">&ndash;</td>
+                    <td class="text-secondary">&ndash;</td>
+                    {{end}}
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+    {{end}}
+
+    {{if .symbolRisk}}
+    <div class="mb-3 p-3 border border-secondary rounded-2">
+        <b>Offenes Risiko pro Asset</b>
+        {{if .perAssetRiskLimit}}<span class="meta-sm text-secondary">(Limit pro Asset: {{.perAssetRiskLimit}}%)</span>{{end}}
+        <table class="table table-sm table-dark mt-2 mb-0">
+            <thead>
+                <tr><th>Asset</th><th>Klasse</th><th>Trades</th><th>Risiko &euro;</th><th>Risiko %</th><th>Limit</th><th>Frei</th></tr>
+            </thead>
+            <tbody>
+                {{range .symbolRisk}}
+                <tr>
+                    <td>{{.Symbol}}</td>
+                    <td>{{if .Class}}{{.Class}}{{else}}<span class="text-secondary">&ndash;</span>{{end}}</td>
+                    <td>{{.TradeCount}}</td>
+                    <td>{{.TotalRiskAmount}}</td>
+                    <td class="text-info">{{.TotalRisk}}%</td>
+                    {{if .HasLimit}}
+                    <td>{{.LimitPct}}%{{if $.accountSize}} ({{.LimitAmount}}&euro;){{end}}</td>
+                    <td class="{{if lt .FreePct 0.0}}text-danger{{else}}text-success{{end}}">{{.FreePct}}%{{if $.accountSize}} ({{.FreeAmount}}&euro;){{end}}</td>
+                    {{else}}
+                    <td class="text-secondary">&ndash;</td>
+                    <td class="text-secondary">&ndash;</td>
+                    {{end}}
                 </tr>
                 {{end}}
             </tbody>

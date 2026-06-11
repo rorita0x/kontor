@@ -168,7 +168,8 @@ type Asset struct {
 }
 
 type AssetClass struct {
-	Title string `storm:"id"`
+	Title     string `storm:"id"`
+	RiskLimit F32    `form:"riskLimit" json:"riskLimit"` // erlaubtes offenes Risiko in % vom Konto (nur informativ)
 }
 
 type ClassRiskSummary struct {
@@ -176,6 +177,26 @@ type ClassRiskSummary struct {
 	TotalRisk       F32 // Summe der Konto-Risiko-Prozente
 	TotalRiskAmount F32 // Summe des Risikos in Kontowährung
 	TradeCount      int
+	HasLimit        bool // ob für die Klasse ein Limit gepflegt ist
+	LimitPct        F32  // Limit in % vom Konto
+	LimitAmount     F32  // Limit in Kontowährung (LimitPct * Konto / 100)
+	FreePct         F32  // noch freies Risiko in % (LimitPct - TotalRisk)
+	FreeAmount      F32  // noch freies Risiko in Kontowährung
+}
+
+// SymbolRiskSummary fasst das offene Risiko eines einzelnen Symbols gegen das
+// globale Limit pro Asset zusammen (für die Übersicht und das Eintrags-Formular).
+type SymbolRiskSummary struct {
+	Symbol          string
+	Class           string
+	TotalRisk       F32
+	TotalRiskAmount F32
+	TradeCount      int
+	HasLimit        bool
+	LimitPct        F32
+	LimitAmount     F32
+	FreePct         F32
+	FreeAmount      F32
 }
 
 // StatsSummary fasst Kennzahlen über eine Menge von Trades zusammen
@@ -194,6 +215,7 @@ type StatsSummary struct {
 
 // Settings hält globale Einstellungen. Es gibt genau einen Datensatz mit Pk = 1.
 type Settings struct {
-	Pk          int `storm:"id" form:"-"`
-	AccountSize F32 `form:"accountSize" json:"accountSize"`
+	Pk                int `storm:"id" form:"-"`
+	AccountSize       F32 `form:"accountSize" json:"accountSize"`
+	PerAssetRiskLimit F32 `form:"perAssetRiskLimit" json:"perAssetRiskLimit"` // generelles Limit pro Asset in % vom Konto (nur informativ)
 }

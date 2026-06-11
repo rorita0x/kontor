@@ -53,6 +53,30 @@
                         if (this.accountSize <= 0) return 0;
                         return this.riskAmount / this.accountSize * 100;
                     },
+
+                    // Bereits offenes Risiko (ohne diesen Eintrag) – serverseitig vorberechnet.
+                    symbolRisk: {{ toJSON .symbolRisk }},
+                    classRiskMap: {{ toJSON .classRisk }},
+                    symbolClass: {{ toJSON .symbolClass }},
+                    classLimits: {{ toJSON .classLimits }},
+                    perAssetLimit: {{ .perAssetRiskLimit }},
+
+                    get selClass() { return this.symbolClass[this.selectedSymbol] || ""; },
+                    get existSymbol() { return this.symbolRisk[this.selectedSymbol] || { pct: 0, amount: 0 }; },
+                    get existClass() { return this.classRiskMap[this.selClass || "Unclassified"] || { pct: 0, amount: 0 }; },
+                    get classLimitPct() { return this.classLimits[this.selClass] || 0; },
+                    get assetLimitPct() { return this.perAssetLimit || 0; },
+
+                    get projSymbolPct() { return this.existSymbol.pct + this.riskPercent; },
+                    get projSymbolAmount() { return this.existSymbol.amount + this.riskAmount; },
+                    get projClassPct() { return this.existClass.pct + this.riskPercent; },
+                    get projClassAmount() { return this.existClass.amount + this.riskAmount; },
+
+                    // Einheitliche Anzeige: mit Konto "P% (A €)", sonst nur "A €".
+                    fmt(pct, amount) {
+                        if (this.accountSize > 0) return pct.toFixed(2) + "% (" + amount.toFixed(2) + " €)";
+                        return amount.toFixed(2) + " €";
+                    },
             }'
 >
     <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
@@ -78,16 +102,41 @@
 
         <!-- Symbol -->
         <label for="symbol" class="form-label">Asset</label>
-        <select id="symbol" name="symbol" class="form-select" required>
+        <select id="symbol" name="symbol" class="form-select" required x-model="selectedSymbol">
             <option value="">---</option>
             <template x-for="symbol in symbols">
-                <option
-                        x-text="symbol"
-                        :selected="symbol === selectedSymbol">
-                </option>
+                <option x-text="symbol" :value="symbol"></option>
             </template>
         </select>
         <div class="invalid-feedback">Bitte ein Asset auswählen.</div>
+
+        <!-- Risiko-Übersicht zum gewählten Asset -->
+        <div class="mt-2 p-2 border border-secondary rounded-2" x-show="selectedSymbol" x-cloak>
+            <div class="meta-sm text-secondary mb-1">Offenes Risiko (ohne diesen Eintrag) und Stand nach dem Speichern:</div>
+            <table class="table table-sm table-dark mb-0 align-middle">
+                <thead>
+                    <tr><th></th><th>Bereits offen</th><th>Nach Eintrag</th><th>Limit</th><th>Frei danach</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Asset <b x-text="selectedSymbol"></b></td>
+                        <td x-text="fmt(existSymbol.pct, existSymbol.amount)"></td>
+                        <td x-text="fmt(projSymbolPct, projSymbolAmount)"></td>
+                        <td x-text="assetLimitPct > 0 ? fmt(assetLimitPct, assetLimitPct * accountSize / 100) : '—'"></td>
+                        <td :class="assetLimitPct > 0 && (assetLimitPct - projSymbolPct) < 0 ? 'text-danger' : 'text-success'"
+                            x-text="assetLimitPct > 0 ? fmt(assetLimitPct - projSymbolPct, (assetLimitPct * accountSize / 100) - projSymbolAmount) : '—'"></td>
+                    </tr>
+                    <tr>
+                        <td>Klasse <b x-text="selClass || 'Unclassified'"></b></td>
+                        <td x-text="fmt(existClass.pct, existClass.amount)"></td>
+                        <td x-text="fmt(projClassPct, projClassAmount)"></td>
+                        <td x-text="classLimitPct > 0 ? fmt(classLimitPct, classLimitPct * accountSize / 100) : '—'"></td>
+                        <td :class="classLimitPct > 0 && (classLimitPct - projClassPct) < 0 ? 'text-danger' : 'text-success'"
+                            x-text="classLimitPct > 0 ? fmt(classLimitPct - projClassPct, (classLimitPct * accountSize / 100) - projClassAmount) : '—'"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
 
         <!-- Traded -->
         <div class="mt-2">

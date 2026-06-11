@@ -30,13 +30,25 @@ func loadSettings(db *storm.DB) Settings {
 	return s
 }
 
-func computeClassRisk(trades []Trade, assets []Asset, accountSize F32) []ClassRiskSummary {
+func computeClassRisk(trades []Trade, assets []Asset, classes []AssetClass, accountSize F32) []ClassRiskSummary {
 	symbolToClass := make(map[string]string, len(assets))
 	for _, a := range assets {
 		symbolToClass[a.Symbol] = a.AssetClass
 	}
 
+	limits := make(map[string]F32, len(classes))
+	for _, c := range classes {
+		limits[c.Title] = c.RiskLimit
+	}
+
 	classRisk := make(map[string]ClassRiskSummary)
+	// Klassen mit gepflegtem Limit vorab anlegen, damit sie auch ohne offene
+	// Trades (mit vollem freien Spielraum) erscheinen.
+	for _, c := range classes {
+		if c.RiskLimit > 0 {
+			classRisk[c.Title] = ClassRiskSummary{Class: c.Title}
+		}
+	}
 	for _, t := range trades {
 		if t.Result != RESULT_NOTFINISHED {
 			continue
@@ -55,12 +67,106 @@ func computeClassRisk(trades []Trade, assets []Asset, accountSize F32) []ClassRi
 
 	result := make([]ClassRiskSummary, 0, len(classRisk))
 	for _, v := range classRisk {
+		if limit := limits[v.Class]; limit > 0 {
+			v.HasLimit = true
+			v.LimitPct = limit
+			v.LimitAmount = limit * accountSize / 100
+			v.FreePct = limit - v.TotalRisk
+			v.FreeAmount = v.LimitAmount - v.TotalRiskAmount
+		}
 		result = append(result, v)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Class < result[j].Class
 	})
 	return result
+}
+
+// computeSymbolRisk aggregiert das offene Risiko je Symbol und vergleicht es mit
+// dem globalen Limit pro Asset (perAssetLimit in % vom Konto). Nur offene Trades.
+func computeSymbolRisk(trades []Trade, assets []Asset, perAssetLimit, accountSize F32) []SymbolRiskSummary {
+	symbolToClass := make(map[string]string, len(assets))
+	for _, a := range assets {
+		symbolToClass[a.Symbol] = a.AssetClass
+	}
+
+	symbolRisk := make(map[string]SymbolRiskSummary)
+	for _, t := range trades {
+		if t.Result != RESULT_NOTFINISHED {
+			continue
+		}
+		s := symbolRisk[t.Symbol]
+		s.Symbol = t.Symbol
+		s.Class = symbolToClass[t.Symbol]
+		s.TotalRisk += t.RiskPercent(accountSize)
+		s.TotalRiskAmount += t.RiskAmount()
+		s.TradeCount++
+		symbolRisk[t.Symbol] = s
+	}
+
+	result := make([]SymbolRiskSummary, 0, len(symbolRisk))
+	for _, v := range symbolRisk {
+		if perAssetLimit > 0 {
+			v.HasLimit = true
+			v.LimitPct = perAssetLimit
+			v.LimitAmount = perAssetLimit * accountSize / 100
+			v.FreePct = perAssetLimit - v.TotalRisk
+			v.FreeAmount = v.LimitAmount - v.TotalRiskAmount
+		}
+		result = append(result, v)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Symbol < result[j].Symbol
+	})
+	return result
+}
+
+// formRiskData baut die für das Eintrags-Formular benötigten Nachschlage-Maps
+// (offenes Risiko je Symbol/Klasse, Symbol→Klasse, Klassen-Limits). Die Werte
+// sind float64, damit Alpine im Browser damit rechnen kann (F32 würde wegen
+// MarshalText als String serialisiert). excludePk schließt einen Trade aus der
+// Summe aus (für /edit, damit der bearbeitete Eintrag nicht doppelt zählt).
+func formRiskData(trades []Trade, assets []Asset, classes []AssetClass, accountSize F32, excludePk int) (symbolRisk, classRisk map[string]map[string]float64, symbolClass map[string]string, classLimits map[string]float64) {
+	symbolClass = make(map[string]string, len(assets))
+	for _, a := range assets {
+		symbolClass[a.Symbol] = a.AssetClass
+	}
+
+	classLimits = make(map[string]float64, len(classes))
+	for _, c := range classes {
+		classLimits[c.Title] = float64(c.RiskLimit)
+	}
+
+	symbolRisk = make(map[string]map[string]float64)
+	classRisk = make(map[string]map[string]float64)
+	for _, t := range trades {
+		if t.Result != RESULT_NOTFINISHED || t.Pk == excludePk {
+			continue
+		}
+		pct := float64(t.RiskPercent(accountSize))
+		amount := float64(t.RiskAmount())
+
+		s := symbolRisk[t.Symbol]
+		if s == nil {
+			s = map[string]float64{}
+		}
+		s["pct"] += pct
+		s["amount"] += amount
+		symbolRisk[t.Symbol] = s
+
+		class := symbolClass[t.Symbol]
+		if class == "" {
+			class = "Unclassified"
+		}
+		c := classRisk[class]
+		if c == nil {
+			c = map[string]float64{}
+		}
+		c["pct"] += pct
+		c["amount"] += amount
+		classRisk[class] = c
+	}
+	return
 }
 
 // computeStats berechnet Kennzahlen über die übergebene (bereits gefilterte
@@ -138,19 +244,24 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			symbols = append(symbols, symbol.Symbol)
 		}
 
+		var classes []AssetClass
+		err = db.All(&classes)
+
 		settings := loadSettings(db)
 
 		flash, flashType := flashMessage(c.Query("flash"))
 
 		c.HTML(200, "index", gin.H{
-			"tags":        stringTags,
-			"symbols":     symbols,
-			"trades":      trades,
-			"classRisk":   computeClassRisk(trades, assets, settings.AccountSize),
-			"stats":       computeStats(trades, settings.AccountSize),
-			"accountSize": settings.AccountSize,
-			"flash":       flash,
-			"flashType":   flashType,
+			"tags":              stringTags,
+			"symbols":           symbols,
+			"trades":            trades,
+			"classRisk":         computeClassRisk(trades, assets, classes, settings.AccountSize),
+			"symbolRisk":        computeSymbolRisk(trades, assets, settings.PerAssetRiskLimit, settings.AccountSize),
+			"perAssetRiskLimit": settings.PerAssetRiskLimit,
+			"stats":             computeStats(trades, settings.AccountSize),
+			"accountSize":       settings.AccountSize,
+			"flash":             flash,
+			"flashType":         flashType,
 		})
 	})
 
@@ -228,16 +339,21 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			symbols = append(symbols, symbol.Symbol)
 		}
 
+		var classes []AssetClass
+		err = db.All(&classes)
+
 		settings := loadSettings(db)
 
 		c.HTML(200, "index", gin.H{
-			"tags":        stringTags,
-			"symbols":     symbols,
-			"trades":      filteredTrades,
-			"filter":      filter,
-			"classRisk":   computeClassRisk(trades, assets, settings.AccountSize),
-			"stats":       computeStats(filteredTrades, settings.AccountSize),
-			"accountSize": settings.AccountSize,
+			"tags":              stringTags,
+			"symbols":           symbols,
+			"trades":            filteredTrades,
+			"filter":            filter,
+			"classRisk":         computeClassRisk(trades, assets, classes, settings.AccountSize),
+			"symbolRisk":        computeSymbolRisk(trades, assets, settings.PerAssetRiskLimit, settings.AccountSize),
+			"perAssetRiskLimit": settings.PerAssetRiskLimit,
+			"stats":             computeStats(filteredTrades, settings.AccountSize),
+			"accountSize":       settings.AccountSize,
 		})
 	})
 
@@ -278,11 +394,22 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			stringClasses = append(stringClasses, cls.Title)
 		}
 
+		var trades []Trade
+		err = db.All(&trades)
+
+		settings := loadSettings(db)
+		symbolRisk, classRisk, symbolClass, classLimits := formRiskData(trades, assets, assetClasses, settings.AccountSize, 0)
+
 		c.HTML(200, "add", gin.H{
-			"tags":         stringTags,
-			"symbols":      symbols,
-			"assetClasses": stringClasses,
-			"accountSize":  loadSettings(db).AccountSize,
+			"tags":              stringTags,
+			"symbols":           symbols,
+			"assetClasses":      stringClasses,
+			"accountSize":       settings.AccountSize,
+			"perAssetRiskLimit": settings.PerAssetRiskLimit,
+			"symbolRisk":        symbolRisk,
+			"classRisk":         classRisk,
+			"symbolClass":       symbolClass,
+			"classLimits":       classLimits,
 		})
 	})
 
@@ -325,13 +452,17 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 
 		flash, flashType := flashMessage(c.Query("flash"))
 
+		settings := loadSettings(db)
+
 		c.HTML(200, "settings", gin.H{
-			"tags":         stringTags,
-			"symbols":      symbols,
-			"assetClasses": stringClasses,
-			"accountSize":  loadSettings(db).AccountSize,
-			"flash":        flash,
-			"flashType":    flashType,
+			"tags":              stringTags,
+			"symbols":           symbols,
+			"assetClasses":      stringClasses,
+			"assetClassLimits":  assetClasses,
+			"accountSize":       settings.AccountSize,
+			"perAssetRiskLimit": settings.PerAssetRiskLimit,
+			"flash":             flash,
+			"flashType":         flashType,
 		})
 	})
 
@@ -382,12 +513,25 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			stringClasses = append(stringClasses, cls.Title)
 		}
 
+		var trades []Trade
+		err = db.All(&trades)
+
+		settings := loadSettings(db)
+		// Den bearbeiteten Trade aus der Summe ausschließen, damit er beim
+		// Vergleich nicht doppelt zählt (die Live-Vorschau addiert ihn neu).
+		symbolRisk, classRisk, symbolClass, classLimits := formRiskData(trades, assets, assetClasses, settings.AccountSize, trade.Pk)
+
 		c.HTML(200, "add", gin.H{
-			"tags":         stringTags,
-			"symbols":      symbols,
-			"assetClasses": stringClasses,
-			"trade":        trade,
-			"accountSize":  loadSettings(db).AccountSize,
+			"tags":              stringTags,
+			"symbols":           symbols,
+			"assetClasses":      stringClasses,
+			"trade":             trade,
+			"accountSize":       settings.AccountSize,
+			"perAssetRiskLimit": settings.PerAssetRiskLimit,
+			"symbolRisk":        symbolRisk,
+			"classRisk":         classRisk,
+			"symbolClass":       symbolClass,
+			"classLimits":       classLimits,
 		})
 	})
 
@@ -611,6 +755,25 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 		} else {
 			c.Redirect(302, "/settings")
 		}
+	})
+
+	r.POST("/set-class-limit", func(c *gin.Context) {
+		var cls AssetClass
+
+		// Title (name="Title") und RiskLimit (form:"riskLimit") werden gebunden.
+		// AssetClass hält nur diese beiden Felder, daher ist db.Save ein
+		// vollständiges, korrektes Überschreiben des Datensatzes.
+		if err := c.ShouldBind(&cls); err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		if err := db.Save(&cls); err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		c.Redirect(302, "/settings?flash=settings-saved")
 	})
 
 	r.POST("/insert", func(c *gin.Context) {
