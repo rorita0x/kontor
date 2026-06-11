@@ -169,10 +169,11 @@
         <!-- Symbol -->
         <label for="symbol" class="form-label">Asset</label>
         <div class="input-group has-validation">
-            <select id="symbol" name="symbol" class="form-select" required x-model="selectedSymbol">
+            <select id="symbol" name="symbol" class="form-select" required
+                    @change="selectedSymbol = $event.target.value">
                 <option value="">---</option>
-                <template x-for="symbol in symbols">
-                    <option x-text="symbol" :value="symbol"></option>
+                <template x-for="symbol in symbols" :key="symbol">
+                    <option :value="symbol" :selected="symbol === selectedSymbol" x-text="symbol"></option>
                 </template>
             </select>
             <button class="btn btn-outline-light" type="button"
