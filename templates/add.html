@@ -6,10 +6,43 @@
             x-data='{
                     tags: {{ toJSON .tags }},
                     symbols: {{ toJSON .symbols }},
+                    assetClasses: {{ toJSON .assetClasses }},
 
                     selectedTags: {{ if .trade }}{{ toJSON .trade.Tags }}{{ else }}[]{{ end }},
                     isSelected(tag) { return this.selectedTags.includes(tag); },
                     selectedSymbol: {{ if .trade }}{{ toJSON .trade.Symbol }}{{ else }}""{{ end }},
+
+                    // Schnelles Hinzufügen eines Assets per Modal, ohne den Eintrag zu verlassen.
+                    showAssetModal: false,
+                    newSymbol: "",
+                    newClass: "",
+                    addingAsset: false,
+                    addAssetError: "",
+                    async addAsset() {
+                        const sym = this.newSymbol.trim();
+                        if (!sym) return;
+                        this.addingAsset = true;
+                        this.addAssetError = "";
+                        try {
+                            const body = new URLSearchParams({ Symbol: sym, assetClass: this.newClass });
+                            const res = await fetch("/add-symbol", {
+                                method: "POST",
+                                headers: { "HX-Request": "true", "Content-Type": "application/x-www-form-urlencoded" },
+                                body,
+                            });
+                            if (!res.ok) { this.addAssetError = "Konnte Asset nicht speichern."; return; }
+                            this.symbols = await res.json();
+                            this.symbolClass[sym] = this.newClass;
+                            this.$nextTick(() => { this.selectedSymbol = sym; });
+                            this.showAssetModal = false;
+                            this.newSymbol = "";
+                            this.newClass = "";
+                        } catch (e) {
+                            this.addAssetError = "Fehler: " + e;
+                        } finally {
+                            this.addingAsset = false;
+                        }
+                    },
 
                     exits: {{ if .trade }}{{ toJSON .trade.Exits }}{{ else }}[]{{ end }},
                     addExit() { this.exits.push({ date: "", price: "", qty: "" }); },
@@ -125,13 +158,18 @@
 
         <!-- Symbol -->
         <label for="symbol" class="form-label">Asset</label>
-        <select id="symbol" name="symbol" class="form-select" required x-model="selectedSymbol">
-            <option value="">---</option>
-            <template x-for="symbol in symbols">
-                <option x-text="symbol" :value="symbol"></option>
-            </template>
-        </select>
-        <div class="invalid-feedback">Bitte ein Asset auswählen.</div>
+        <div class="input-group has-validation">
+            <select id="symbol" name="symbol" class="form-select" required x-model="selectedSymbol">
+                <option value="">---</option>
+                <template x-for="symbol in symbols">
+                    <option x-text="symbol" :value="symbol"></option>
+                </template>
+            </select>
+            <button class="btn btn-outline-light" type="button"
+                    @click="showAssetModal = true; addAssetError = ''"
+                    title="Neues Asset anlegen">+ Neu</button>
+            <div class="invalid-feedback">Bitte ein Asset auswählen.</div>
+        </div>
 
         <!-- Risiko-Übersicht zum gewählten Asset -->
         <div class="mt-2 p-2 border border-secondary rounded-2" x-show="selectedSymbol" x-cloak>
@@ -340,5 +378,37 @@
             <a href="/" class="btn btn-outline-light">Abbrechen</a>
         </div>
     </form>
+
+    <!-- Quick-Add Asset Modal (Alpine-gesteuert, außerhalb des Formulars) -->
+    <div x-show="showAssetModal" x-cloak
+         style="display:flex; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:1050; align-items:center; justify-content:center;"
+         @click.self="showAssetModal = false"
+         @keydown.escape.window="showAssetModal = false">
+        <div class="card bg-dark text-light border-secondary" style="min-width:320px; max-width:90%;">
+            <div class="card-header d-flex justify-content-between align-items-center border-secondary">
+                <b>Neues Asset hinzufügen</b>
+                <button type="button" class="btn-close btn-close-white" @click="showAssetModal = false" aria-label="Schließen"></button>
+            </div>
+            <div class="card-body">
+                <label for="newSymbol" class="form-label">Symbol</label>
+                <input id="newSymbol" class="form-control" type="text" x-model="newSymbol"
+                       placeholder="z.B. BTCUSD" @keydown.enter.prevent="addAsset()" x-ref="newSymbolInput">
+                <label for="newClass" class="form-label mt-2">Asset-Klasse</label>
+                <select id="newClass" class="form-select" x-model="newClass">
+                    <option value="">Keine Klasse</option>
+                    <template x-for="cls in assetClasses" :key="cls">
+                        <option :value="cls" x-text="cls"></option>
+                    </template>
+                </select>
+                <div class="text-danger mt-2" x-show="addAssetError" x-text="addAssetError" x-cloak></div>
+            </div>
+            <div class="card-footer d-flex justify-content-end gap-2 border-secondary">
+                <button type="button" class="btn btn-outline-light" @click="showAssetModal = false">Abbrechen</button>
+                <button type="button" class="btn btn-primary" :disabled="!newSymbol.trim() || addingAsset" @click="addAsset()">
+                    <span x-show="addingAsset" class="spinner-border spinner-border-sm me-1" x-cloak></span>Hinzufügen
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 {{end}}
