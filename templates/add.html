@@ -45,7 +45,7 @@
                     },
 
                     exits: {{ if .trade }}{{ toJSON .trade.Exits }}{{ else }}[]{{ end }},
-                    addExit() { this.exits.push({ date: "", price: "", qty: "", settled: false, settledAmount: "" }); },
+                    addExit() { this.exits.push({ date: "", price: "", qty: "", settled: false, settledAmount: "", fxRate: "" }); },
                     removeExit(i) { this.exits.splice(i, 1); },
                     // Aus der DB geladene Exits auf die Verrechnungs-Felder normalisieren
                     // (ältere Einträge haben sie noch nicht). settledAmount bleibt – wie
@@ -56,6 +56,10 @@
                             if (e.settled === undefined) e.settled = false;
                             e.settledAmount = (e.settledAmount === undefined || e.settledAmount === null)
                                 ? "" : String(e.settledAmount);
+                            // fxRate analog zu settledAmount als String halten (sonst sendet
+                            // JSON eine Zahl, die der FxRate-Decoder nicht als Text annimmt).
+                            e.fxRate = (e.fxRate === undefined || e.fxRate === null || +e.fxRate === 0)
+                                ? "" : String(e.fxRate);
                         });
                     },
 
@@ -69,6 +73,46 @@
                     margin: {{ if .trade }}{{ .trade.Margin }}{{ else }}0{{ end }},
                     riskAmount: 0,
                     riskPercent: 0,
+
+                    // Wechselkurs (Kontowährung je Trade-Währung) bei Eröffnung. Alle
+                    // Geldfelder sind in Trade-Währung (z. B. USD); fx rechnet aufs Konto
+                    // (EUR) um. Leer/0 = 1 (Trade läuft in Kontowährung).
+                    fxRate: {{ if .trade }}{{ .trade.FxRate }}{{ else }}0{{ end }},
+                    fetchingFx: false,
+                    fxError: "",
+                    exitFxLoading: -1,
+                    get fx() { return this.fxRate > 0 ? this.fxRate : 1; },
+                    // Live-Kurs (USD→EUR) vom Server holen und ins Trade-Feld setzen.
+                    async fetchFx() {
+                        this.fetchingFx = true; this.fxError = "";
+                        try {
+                            const res = await fetch("/fx");
+                            if (!res.ok) { this.fxError = "Kurs nicht verfügbar."; return; }
+                            const data = await res.json();
+                            this.fxRate = +(+data.rate).toFixed(6);
+                            this.recompute();
+                        } catch (e) {
+                            this.fxError = "Fehler: " + e;
+                        } finally {
+                            this.fetchingFx = false;
+                        }
+                    },
+                    // Live-Kurs für einen einzelnen Exit holen (Verrechnung).
+                    async fetchExitFx(i) {
+                        this.exitFxLoading = i; this.fxError = "";
+                        try {
+                            const res = await fetch("/fx");
+                            if (!res.ok) { this.fxError = "Kurs nicht verfügbar."; return; }
+                            const data = await res.json();
+                            this.exits[i].fxRate = String(+(+data.rate).toFixed(6));
+                        } catch (e) {
+                            this.fxError = "Fehler: " + e;
+                        } finally {
+                            this.exitFxLoading = -1;
+                        }
+                    },
+                    // Wechselkurs eines Exits: exit-eigener Kurs, sonst Trade-Kurs.
+                    exitFx(e) { const r = +e.fxRate; return r > 0 ? r : this.fx; },
 
                     // Kontostand-Verrechnung: pro Exit wird festgehalten, ob er bereits
                     // verrechnet wurde. Das rechnerische Ergebnis dient nur als Vorschlag.
@@ -114,8 +158,9 @@
                         } else if (this.lastEdited === "riskAmount") {
                             if (pricesOk && D !== 0) this.quantity = +(this.riskAmount / D).toFixed(8);
                         } else if (this.lastEdited === "riskPercent") {
+                            // riskPercent ist %-vom-EUR-Konto; /fx zurück in Trade-Währung.
                             if (pricesOk && D !== 0 && this.accountSize > 0)
-                                this.quantity = +((this.riskPercent / 100 * this.accountSize) / D).toFixed(8);
+                                this.quantity = +((this.riskPercent / 100 * this.accountSize / this.fx) / D).toFixed(8);
                         }
 
                         const q = this.quantity;
@@ -124,7 +169,8 @@
                         if (this.lastEdited !== "riskAmount")
                             this.riskAmount = pricesOk ? +(q * D).toFixed(2) : 0;
                         if (this.lastEdited !== "riskPercent")
-                            this.riskPercent = this.accountSize > 0 ? +(this.riskAmount / this.accountSize * 100).toFixed(2) : 0;
+                            // riskAmount ist Trade-Währung; ×fx ergibt das EUR-Risiko fürs Konto.
+                            this.riskPercent = this.accountSize > 0 ? +(this.riskAmount * this.fx / this.accountSize * 100).toFixed(2) : 0;
 
                         this.recalcMargin();
                     },
@@ -141,9 +187,10 @@
                     syncLeverageFromMargin() {
                         if (this.margin > 0 && this.notional > 0) this.leverage = +(this.notional / this.margin).toFixed(2);
                     },
-                    // Wie viel % des Kontostands bindet die Margin?
+                    // Wie viel % des Kontostands bindet die Margin? (Margin in Trade-Währung
+                    // ×fx ergibt den EUR-Betrag, dann Anteil am Konto.)
                     get marginPercent() {
-                        return this.accountSize > 0 && this.margin > 0 ? this.margin / this.accountSize * 100 : 0;
+                        return this.accountSize > 0 && this.margin > 0 ? this.margin * this.fx / this.accountSize * 100 : 0;
                     },
                     recalcMargin() {
                         // Hebel ist führend: bei geändertem Notional die Margin neu berechnen,
@@ -165,10 +212,12 @@
                     get classLimitPct() { return this.classLimits[this.selClass] || 0; },
                     get assetLimitPct() { return this.perAssetLimit || 0; },
 
+                    // Risiko dieses Eintrags in Kontowährung (existSymbol/Class sind EUR).
+                    get riskAmountAcct() { return this.riskAmount * this.fx; },
                     get projSymbolPct() { return this.existSymbol.pct + this.riskPercent; },
-                    get projSymbolAmount() { return this.existSymbol.amount + this.riskAmount; },
+                    get projSymbolAmount() { return this.existSymbol.amount + this.riskAmountAcct; },
                     get projClassPct() { return this.existClass.pct + this.riskPercent; },
-                    get projClassAmount() { return this.existClass.amount + this.riskAmount; },
+                    get projClassAmount() { return this.existClass.amount + this.riskAmountAcct; },
 
                     // Freies Risiko nach diesem Eintrag.
                     get assetFreePct() { return this.assetLimitPct - this.projSymbolPct; },
@@ -205,7 +254,8 @@
                     applyDefaultRisk() {
                         const f = this.availFree;
                         if (!f) return;
-                        this.riskAmount = Math.max(0, +f.amount.toFixed(2));
+                        // f.amount ist EUR (vom Server); riskAmount ist Trade-Währung → /fx.
+                        this.riskAmount = Math.max(0, +(f.amount / this.fx).toFixed(2));
                         this.lastEdited = "riskAmount";
                         this.recompute();
                     },
@@ -337,7 +387,7 @@
         <!-- Risiko direkt vorgeben (alternativ zu Stückzahl/Positionswert) -->
         <div class="row mt-2">
             <div class="col-6">
-                <label for="riskAmount" class="form-label">Risiko (Kontowährung)</label>
+                <label for="riskAmount" class="form-label">Risiko (Trade-Währung)</label>
                 <input id="riskAmount" class="form-control"
                        type="number" step="any"
                        x-model.number="riskAmount" @input="edit('riskAmount')">
@@ -364,20 +414,42 @@
                        x-model.number="leverage" @input="syncMarginFromLeverage()">
             </div>
             <div class="col-6">
-                <label for="margin" class="form-label">Margin (Kontowährung)</label>
+                <label for="margin" class="form-label">Margin (Trade-Währung)</label>
                 <div class="input-group">
                     <input name="margin" id="margin" class="form-control"
                            type="number" step="any" min="0" placeholder="gebundenes Kapital"
                            x-model.number="margin" @input="syncLeverageFromMargin()">
                     <span class="input-group-text" x-show="marginPercent > 0" x-cloak
-                          title="Anteil der Margin am Kontostand"
+                          title="Anteil der Margin am Kontostand (mit Wechselkurs umgerechnet)"
                           x-text="marginPercent.toFixed(1) + ' % vom Konto'"></span>
                 </div>
             </div>
             <small class="text-secondary d-block mt-1">
                 Hebel oder Margin eingeben — der jeweils andere Wert wird aus dem Positionswert
-                (<b x-text="notional.toFixed(2)"></b> &euro;) berechnet.
+                (<b x-text="notional.toFixed(2)"></b>, Trade-Währung) berechnet.
             </small>
+        </div>
+
+        <!-- Wechselkurs Trade-Währung → Konto -->
+        <div class="row mt-2">
+            <div class="col-12">
+                <label for="fxRate" class="form-label">Wechselkurs (Kontowährung je Trade-Währung)</label>
+                <div class="input-group">
+                    <input name="fxRate" id="fxRate" class="form-control"
+                           type="number" step="any" min="0" placeholder="leer = 1 (Trade läuft in Kontowährung)"
+                           x-model.number="fxRate" @input="recompute()">
+                    <button class="btn btn-outline-light" type="button" @click="fetchFx()" :disabled="fetchingFx">
+                        <span x-show="fetchingFx" class="spinner-border spinner-border-sm me-1" x-cloak></span>
+                        Live-Kurs (USD&rarr;EUR)
+                    </button>
+                </div>
+                <small class="text-secondary d-block mt-1">
+                    Für USD-Trades auf deinem EUR-Konto: Kurs bei Eröffnung holen. Entry/Stop/Margin bleiben in USD;
+                    Risiko-% und Margin-% werden damit aufs Konto umgerechnet. Für EUR-Trades leer lassen.
+                    <span x-show="fxRate > 0" x-cloak>&middot; 1 USD &asymp; <b x-text="(+fxRate).toFixed(4)"></b> &euro;</span>
+                    <span class="text-danger" x-show="fxError" x-text="fxError" x-cloak></span>
+                </small>
+            </div>
         </div>
 
         <!-- Live-Risiko-Vorschau -->
@@ -385,7 +457,8 @@
             <template x-if="riskAmount > 0">
                 <span>
                     Geschätztes Risiko:
-                    <b x-text="riskAmount.toFixed(2)"></b> &euro;
+                    <b x-text="riskAmountAcct.toFixed(2)"></b> &euro;
+                    <template x-if="fxRate > 0"><span class="text-secondary">(<b x-text="riskAmount.toFixed(2)"></b> Trade-Währung)</span></template>
                     <template x-if="accountSize > 0">
                         <span>(<b x-text="riskPercent.toFixed(2)"></b> % vom Konto)</span>
                     </template>
@@ -397,7 +470,7 @@
             <template x-if="riskAmount < 0">
                 <span class="text-success">
                     Kein Risiko — Stop liegt im Gewinn (gesicherter Gewinn:
-                    <b x-text="(-riskAmount).toFixed(2)"></b> &euro;<template x-if="accountSize > 0"><span>, <b x-text="(-riskPercent).toFixed(2)"></b> % freies Risiko-Budget</span></template>)
+                    <b x-text="(-riskAmountAcct).toFixed(2)"></b> &euro;<template x-if="accountSize > 0"><span>, <b x-text="(-riskPercent).toFixed(2)"></b> % freies Risiko-Budget</span></template>)
                 </span>
             </template>
         </div>
@@ -437,16 +510,29 @@
             </div>
             <table class="table table-sm table-dark align-middle mb-0">
                 <thead>
-                    <tr><th>Exit</th><th>Berechnet</th><th>Betrag (&euro;)</th><th class="text-center">Verrechnet</th></tr>
+                    <tr><th>Exit</th><th>Kurs</th><th>Berechnet (&euro;)</th><th>Betrag (&euro;)</th><th class="text-center">Verrechnet</th></tr>
                 </thead>
                 <tbody>
                     <template x-for="(e, i) in exits" :key="i">
                         <tr x-show="+e.price > 0" :class="!e.settled ? 'table-warning' : ''">
                             <td><span x-text="e.date || '—'"></span> &middot; <span x-text="e.qty"></span>% @ <span x-text="e.price"></span></td>
+                            <td>
+                                <div class="input-group input-group-sm" style="max-width:150px">
+                                    <input class="form-control" type="number" step="any" min="0"
+                                           style="max-width:80px" x-model="exits[i].fxRate"
+                                           :placeholder="fxRate > 0 ? (+fxRate).toFixed(4) : 'Kurs'"
+                                           @keydown.enter.prevent>
+                                    <button type="button" class="btn btn-outline-light" @click="fetchExitFx(i)"
+                                            :disabled="exitFxLoading === i" title="Live-Kurs holen">
+                                        <span x-show="exitFxLoading === i" class="spinner-border spinner-border-sm" x-cloak></span>
+                                        <span x-show="exitFxLoading !== i">&#8635;</span>
+                                    </button>
+                                </div>
+                            </td>
                             <td :class="exitPnL(e) >= 0 ? 'text-success' : 'text-danger'">
-                                <span x-text="exitPnL(e).toFixed(2)"></span> &euro;
+                                <span x-text="(exitPnL(e) * exitFx(e)).toFixed(2)"></span> &euro;
                                 <button type="button" class="btn btn-sm btn-link p-0 ms-1 text-info"
-                                        @click="exits[i].settledAmount = exitPnL(e).toFixed(2)"
+                                        @click="exits[i].settledAmount = (exitPnL(e) * exitFx(e)).toFixed(2)"
                                         title="Betrag übernehmen"><i class="fa fa-arrow-right"></i></button>
                             </td>
                             <td>
@@ -456,7 +542,7 @@
                             </td>
                             <td class="text-center">
                                 <input type="checkbox" class="form-check-input" x-model="exits[i].settled"
-                                       @change="if (exits[i].settled && !exits[i].settledAmount) exits[i].settledAmount = exitPnL(exits[i]).toFixed(2)">
+                                       @change="if (exits[i].settled && !exits[i].settledAmount) exits[i].settledAmount = (exitPnL(exits[i]) * exitFx(exits[i])).toFixed(2)">
                             </td>
                         </tr>
                     </template>

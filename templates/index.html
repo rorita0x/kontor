@@ -248,7 +248,7 @@
                  data-tags="{{range .Tags}}{{.}} {{end}}"
                  data-notes="{{.Notes}}"
                  data-date="{{ if not .CreatedAt.IsZero }}{{ .CreatedAt.Unix }}{{ else }}0{{ end }}"
-                 data-risk="{{ if .RiskAmount }}{{ .RiskAmount }}{{ else }}0{{ end }}">
+                 data-risk="{{ if .RiskAmount }}{{ .RiskAmountAcct }}{{ else }}0{{ end }}">
                 <div class="card-actions d-flex flex-column float-end gap-2 my-2">
                     <a href="/edit/{{.Pk}}" class="btn btn-success btn-sm" type="button" title="Bearbeiten" aria-label="Eintrag bearbeiten"><i class="fa fa-edit"></i></a>
                     <button data-bs-toggle="modal" data-bs-target="#confirmDeleteModal-{{.Pk}}" class="btn btn-danger btn-sm" type="button" title="Löschen" aria-label="Eintrag löschen"><i class="fa fa-trash"></i></button>
@@ -287,17 +287,17 @@
                 {{end}}
                 {{if .PositionValue}}
                 <span class="d-block">
-                    Positionswert: <b>{{.PositionValue}} &euro;</b>
+                    Positionswert: <b>{{.PositionValueAcct}} &euro;</b>
                 </span>
                 {{end}}
                 {{if .Leverage}}
                 <span class="d-block">
-                    Hebel: <b>{{.Leverage}}x</b>{{if .Margin}} &middot; Margin: <b>{{.Margin}} &euro;</b>{{end}}
+                    Hebel: <b>{{.Leverage}}x</b>{{if .Margin}} &middot; Margin: <b>{{.MarginAcct}} &euro;</b>{{end}}
                 </span>
                 {{end}}
                 {{if .RiskAmount}}
                 <span class="d-block">
-                    Risiko: <b>{{.RiskAmount}} &euro;{{ if $.accountSize }} ({{.RiskPercent $.accountSize}}%){{ end }}</b>
+                    Risiko: <b>{{.RiskAmountAcct}} &euro;{{ if $.accountSize }} ({{.RiskPercent $.accountSize}}%){{ end }}</b>
                 </span>
                 {{end}}
                 {{if .Exits}}

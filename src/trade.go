@@ -16,6 +16,34 @@ type Exit struct {
 	// rechnerischen Ergebnis abweichen, z. B. wegen Gebühren oder verteiltem Geld).
 	Settled       bool `json:"settled"`
 	SettledAmount F32  `json:"settledAmount"`
+
+	// FxRate ist der Wechselkurs Kontowährung je Trade-Währung zum Zeitpunkt
+	// dieses Exits (beim Swing-Trade oft anders als bei Eröffnung). Dient nur dem
+	// EUR-Vorschlag der Verrechnung. 0/leer = Trade-Kurs verwenden.
+	FxRate FxRate `json:"fxRate"`
+}
+
+// FxRate ist ein Wechselkurs mit voller Genauigkeit. Anders als F32 rundet er
+// nicht auf 2 Nachkommastellen (für einen Kurs wie 0,8638 essenziell) und liest
+// einen leeren String als 0 (analog zu den übrigen optionalen Formularfeldern).
+type FxRate float64
+
+func (f *FxRate) UnmarshalText(b []byte) error {
+	s := strings.TrimSpace(string(b))
+	if s == "" {
+		*f = 0
+		return nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return err
+	}
+	*f = FxRate(v)
+	return nil
+}
+
+func (f FxRate) MarshalText() ([]byte, error) {
+	return []byte(strconv.FormatFloat(float64(f), 'f', -1, 64)), nil
 }
 
 type Traded string
@@ -120,8 +148,16 @@ type Trade struct {
 	Quantity      F32    `form:"quantity" json:"quantity"`
 	PositionValue F32    `form:"positionValue" json:"positionValue"`
 	Leverage      F32    `form:"leverage" json:"leverage"` // Hebel (z. B. 10 = 10x)
-	Margin        F32    `form:"margin" json:"margin"`     // gebundene Margin in Kontowährung
+	Margin        F32    `form:"margin" json:"margin"`     // gebundene Margin in Trade-Währung
 	Exits         []Exit `json:"exits"`
+
+	// FxRate ist der Wechselkurs Kontowährung je Trade-Währung bei Eröffnung
+	// (z. B. EUR je USD ≈ 0,86). Alle Geldbeträge des Trades (Entry, Stop, Margin,
+	// Positionswert, Risiko) sind in Trade-Währung notiert; FxRate rechnet sie für
+	// die Konto-Sicht (Risiko-%, Dashboard, Verrechnung) auf die Kontowährung um.
+	// 0/leer = 1, d. h. der Trade läuft direkt in Kontowährung (keine Umrechnung).
+	// float64 statt F32, damit der Kurs nicht auf 2 Nachkommastellen gerundet wird.
+	FxRate float64 `form:"fxRate" json:"fxRate"`
 }
 
 // ExitPnL ist das rechnerische Ergebnis eines einzelnen Exits in Kontowährung:
@@ -159,10 +195,19 @@ func (t Trade) UnsettledExitsPnL() F32 {
 	var sum F32
 	for _, e := range t.Exits {
 		if !e.Settled && e.Price > 0 {
-			sum += t.ExitPnL(e)
+			sum += t.ExitPnL(e) * t.exitFx(e)
 		}
 	}
 	return sum
+}
+
+// exitFx liefert den Wechselkurs eines Exits in Kontowährung: bevorzugt den
+// exit-eigenen Kurs, sonst den Trade-Kurs (AcctFx).
+func (t Trade) exitFx(e Exit) F32 {
+	if e.FxRate > 0 {
+		return F32(e.FxRate)
+	}
+	return t.AcctFx()
 }
 
 // NeedsReconcile meldet, ob es einen realen Exit (mit Preis) gibt, der noch
@@ -209,7 +254,7 @@ func (t Trade) EffectiveQty() F32 {
 	return 0
 }
 
-// RiskAmount ist das tatsächliche Risiko in Kontowährung: Stückzahl × Kursabstand,
+// RiskAmount ist das tatsächliche Risiko in Trade-Währung: Stückzahl × Kursabstand,
 // richtungsabhängig. Negativ, wenn der Stop bereits im Gewinn liegt (kein Risiko).
 func (t Trade) RiskAmount() F32 {
 	qty := t.EffectiveQty()
@@ -219,12 +264,36 @@ func (t Trade) RiskAmount() F32 {
 	return qty * t.signedDiff()
 }
 
+// AcctFx ist der Umrechnungsfaktor von der Trade-Währung in die Kontowährung.
+// Ohne gesetzten Kurs 1 (Trade läuft in Kontowährung).
+func (t Trade) AcctFx() F32 {
+	if t.FxRate > 0 {
+		return F32(t.FxRate)
+	}
+	return 1
+}
+
+// RiskAmountAcct ist das Risiko in Kontowährung (RiskAmount × Wechselkurs).
+func (t Trade) RiskAmountAcct() F32 {
+	return t.RiskAmount() * t.AcctFx()
+}
+
+// MarginAcct ist die gebundene Margin in Kontowährung.
+func (t Trade) MarginAcct() F32 {
+	return t.Margin * t.AcctFx()
+}
+
+// PositionValueAcct ist der Positionswert (Notional) in Kontowährung.
+func (t Trade) PositionValueAcct() F32 {
+	return t.PositionValue * t.AcctFx()
+}
+
 // RiskPercent ist das Risiko als Anteil der Kontogröße in Prozent.
 func (t Trade) RiskPercent(accountSize F32) F32 {
 	if accountSize <= 0 {
 		return 0
 	}
-	return t.RiskAmount() / accountSize * 100
+	return t.RiskAmountAcct() / accountSize * 100
 }
 
 type Tag struct {

@@ -2,6 +2,7 @@ package src
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"slices"
@@ -12,6 +13,43 @@ import (
 	"github.com/asdine/storm/v3"
 	"github.com/gin-gonic/gin"
 )
+
+// fetchFxRate holt den aktuellen Wechselkurs für ein Yahoo-Finance-Währungspaar
+// (z. B. "USDEUR=X" → EUR je USD) aus meta.regularMarketPrice.
+func fetchFxRate(pair string) (float64, error) {
+	url := "https://query1.finance.yahoo.com/v8/finance/chart/" + pair + "?interval=1d&range=1d"
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	// Ohne User-Agent antwortet Yahoo teils mit 429/403.
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("yahoo HTTP %d", resp.StatusCode)
+	}
+	var data struct {
+		Chart struct {
+			Result []struct {
+				Meta struct {
+					RegularMarketPrice float64 `json:"regularMarketPrice"`
+				} `json:"meta"`
+			} `json:"result"`
+		} `json:"chart"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return 0, err
+	}
+	if len(data.Chart.Result) == 0 || data.Chart.Result[0].Meta.RegularMarketPrice == 0 {
+		return 0, fmt.Errorf("kein Kurs in der Antwort")
+	}
+	return data.Chart.Result[0].Meta.RegularMarketPrice, nil
+}
 
 type Filter struct {
 	Assets       []string `form:"symbols[]"`
@@ -60,7 +98,7 @@ func computeClassRisk(trades []Trade, assets []Asset, classes []AssetClass, acco
 		s := classRisk[class]
 		s.Class = class
 		s.TotalRisk += t.RiskPercent(accountSize)
-		s.TotalRiskAmount += t.RiskAmount()
+		s.TotalRiskAmount += t.RiskAmountAcct()
 		s.TradeCount++
 		classRisk[class] = s
 	}
@@ -107,7 +145,7 @@ func computeSymbolRisk(trades []Trade, assets []Asset, perAssetLimit, accountSiz
 		s.Symbol = t.Symbol
 		s.Class = symbolToClass[t.Symbol]
 		s.TotalRisk += t.RiskPercent(accountSize)
-		s.TotalRiskAmount += t.RiskAmount()
+		s.TotalRiskAmount += t.RiskAmountAcct()
 		s.TradeCount++
 		symbolRisk[t.Symbol] = s
 	}
@@ -167,7 +205,7 @@ func formRiskData(trades []Trade, assets []Asset, classes []AssetClass, accountS
 			continue
 		}
 		pct := float64(t.RiskPercent(accountSize))
-		amount := float64(t.RiskAmount())
+		amount := float64(t.RiskAmountAcct())
 
 		s := symbolRisk[t.Symbol]
 		if s == nil {
@@ -207,7 +245,7 @@ func computeStats(trades []Trade, accountSize F32) StatsSummary {
 			s.BreakEven++
 		case RESULT_NOTFINISHED:
 			s.Open++
-			s.OpenRisk += t.RiskAmount()
+			s.OpenRisk += t.RiskAmountAcct()
 			s.OpenRiskPct += t.RiskPercent(accountSize)
 		case RESULT_SKIP:
 			s.Skips++
@@ -440,6 +478,18 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"symbolClass":       symbolClass,
 			"classLimits":       classLimits,
 		})
+	})
+
+	// /fx liefert den aktuellen Wechselkurs (Kontowährung je Trade-Währung) zur
+	// automatischen Vorbefüllung im Eintrags-Formular. Default USD→EUR.
+	r.GET("/fx", func(c *gin.Context) {
+		pair := c.DefaultQuery("pair", "USDEUR=X")
+		rate, err := fetchFxRate(pair)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"pair": pair, "rate": rate})
 	})
 
 	r.GET("/settings", func(c *gin.Context) {
