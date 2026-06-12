@@ -305,6 +305,14 @@
                     {{len .Exits}} Exit(s):{{range .Exits}} {{.Quantity}}% @{{.Price}}{{end}}
                 </span>
                 {{end}}
+                {{if .NeedsReconcile}}
+                <span class="d-block my-1">
+                    <a href="/edit/{{.Pk}}" class="badge text-bg-warning text-decoration-none"
+                       title="Realisiertes Ergebnis noch nicht mit dem Kontostand verrechnet">
+                        <i class="fa fa-scale-balanced"></i> Nicht verrechnet: {{.UnsettledPnL}} &euro;
+                    </a>
+                </span>
+                {{end}}
                 <div class="d-flex flex-wrap gap-1 my-2">
                     {{range .Tags}}
                         <span class="tag">{{.}}</span>

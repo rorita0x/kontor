@@ -104,9 +104,53 @@ type Trade struct {
 	StopLoss      F32    `form:"stopLoss" json:"stopLoss"`
 	Quantity      F32    `form:"quantity" json:"quantity"`
 	PositionValue F32    `form:"positionValue" json:"positionValue"`
-	Leverage      F32    `form:"leverage" json:"leverage"`           // Hebel (z. B. 10 = 10x)
-	Margin        F32    `form:"margin" json:"margin"`               // gebundene Margin in Kontowährung
+	Leverage      F32    `form:"leverage" json:"leverage"` // Hebel (z. B. 10 = 10x)
+	Margin        F32    `form:"margin" json:"margin"`     // gebundene Margin in Kontowährung
 	Exits         []Exit `json:"exits"`
+
+	// Settled ist der Teil des realisierten Ergebnisses dieses Trades, der bereits
+	// mit dem gespeicherten Kontostand (Trading-Kapital) verrechnet wurde. So
+	// erkennt die App, was noch offen zu verrechnen ist, und stupst nicht doppelt.
+	Settled F32 `form:"settled" json:"settled"`
+}
+
+// RealizedPnL ist das realisierte Ergebnis dieses Trades in Kontowährung,
+// berechnet aus den Exits: je Exit (Exit-Preis − Entry) × anteilige Stückzahl,
+// richtungsabhängig (bei Short umgekehrt). Die Exit-Menge wird als Prozent der
+// Position interpretiert. Dient nur als Vorschlag fürs Verrechnen.
+func (t Trade) RealizedPnL() F32 {
+	qty := t.EffectiveQty()
+	if qty <= 0 || t.EntryPrice <= 0 {
+		return 0
+	}
+	sign := F32(1)
+	if t.Traded == TRADED_SHORT {
+		sign = -1
+	}
+	var pnl F32
+	for _, e := range t.Exits {
+		if e.Price <= 0 {
+			continue
+		}
+		part := qty * e.Quantity / 100
+		pnl += (e.Price - t.EntryPrice) * part * sign
+	}
+	return pnl
+}
+
+// UnsettledPnL ist der noch nicht mit dem Kontostand verrechnete Teil des
+// realisierten Ergebnisses. ~0 bedeutet: nichts offen.
+func (t Trade) UnsettledPnL() F32 {
+	return t.RealizedPnL() - t.Settled
+}
+
+// NeedsReconcile meldet, ob ein nennenswerter Betrag offen ist (≥ 1 Cent).
+func (t Trade) NeedsReconcile() bool {
+	d := t.UnsettledPnL()
+	if d < 0 {
+		d = -d
+	}
+	return d >= 0.01
 }
 
 // signedDiff ist der richtungsabhängige Kursabstand vom Entry zum Stop-Loss.
@@ -197,7 +241,7 @@ type SymbolRiskSummary struct {
 	HasLimit        bool
 	LimitPct        F32
 	LimitAmount     F32
-	FreePct         F32  // effektiv freies Risiko = min(Asset-frei, Sektor-frei)
+	FreePct         F32 // effektiv freies Risiko = min(Asset-frei, Sektor-frei)
 	FreeAmount      F32
 	SectorBinds     bool // true, wenn das Sektor-Limit die kleinere (bindende) Grenze ist
 }

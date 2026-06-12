@@ -232,6 +232,10 @@ func flashMessage(code string) (msg, typ string) {
 		return "Eintrag gelöscht.", "success"
 	case "settings-saved":
 		return "Einstellungen gespeichert.", "success"
+	case "reconcile-needed":
+		return "Dieser Trade hat ein noch nicht verrechnetes Ergebnis. Unten kannst du den Betrag auf deinen Kontostand verrechnen.", "warning"
+	case "reconciled":
+		return "Kontostand aktualisiert.", "success"
 	default:
 		return "", ""
 	}
@@ -548,6 +552,8 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 		// Vergleich nicht doppelt zählt (die Live-Vorschau addiert ihn neu).
 		symbolRisk, classRisk, symbolClass, classLimits := formRiskData(trades, assets, assetClasses, settings.AccountSize, trade.Pk)
 
+		flash, flashType := flashMessage(c.Query("flash"))
+
 		c.HTML(200, "add", gin.H{
 			"tags":              stringTags,
 			"symbols":           symbols,
@@ -559,6 +565,8 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"classRisk":         classRisk,
 			"symbolClass":       symbolClass,
 			"classLimits":       classLimits,
+			"flash":             flash,
+			"flashType":         flashType,
 		})
 	})
 
@@ -824,6 +832,9 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			var existing Trade
 			if err := db.One("Pk", trade.Pk, &existing); err == nil {
 				trade.CreatedAt = existing.CreatedAt
+				// Settled wird ausschließlich über /reconcile gepflegt und ist nicht
+				// Teil des Formulars – beim Update den bestehenden Wert erhalten.
+				trade.Settled = existing.Settled
 			}
 		} else {
 			trade.CreatedAt = time.Now()
@@ -865,10 +876,63 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			return
 		}
 
+		// Stups: bleibt nach dem Speichern ein realisiertes Ergebnis offen (aus den
+		// Exits errechnet, noch nicht verrechnet), zurück auf die Edit-Seite mit
+		// Hinweis – der Nutzer wird zum Verrechnen genötigt, aber nicht gezwungen.
+		if trade.NeedsReconcile() {
+			c.Redirect(302, "/edit/"+strconv.Itoa(trade.Pk)+"?flash=reconcile-needed")
+			return
+		}
+
 		if isUpdate {
 			c.Redirect(302, "/?flash=trade-updated")
 		} else {
 			c.Redirect(302, "/?flash=trade-saved")
+		}
+	})
+
+	// reconcile bucht einen Betrag auf den gespeicherten Kontostand (Trading-Kapital)
+	// und merkt sich am Trade, wie viel davon bereits verrechnet wurde.
+	r.POST("/reconcile/:id", func(c *gin.Context) {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 0)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		var trade Trade
+		if err := db.One("Pk", id, &trade); err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		amount, err := strconv.ParseFloat(c.PostForm("amount"), 32)
+		if err != nil {
+			c.String(http.StatusBadRequest, "ungültiger Betrag: %s", err.Error())
+			return
+		}
+
+		settings := loadSettings(db)
+		settings.Pk = 1
+		settings.AccountSize += F32(amount)
+		if err := db.Save(&settings); err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		trade.Settled += F32(amount)
+		if err := db.Save(&trade); err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+
+		if c.GetHeader("HX-Request") != "" {
+			c.JSON(200, gin.H{
+				"accountSize": settings.AccountSize,
+				"settled":     trade.Settled,
+			})
+		} else {
+			c.Redirect(302, "/edit/"+strconv.Itoa(int(id))+"?flash=reconciled")
 		}
 	})
 }

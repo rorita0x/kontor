@@ -59,6 +59,49 @@
                     riskAmount: 0,
                     riskPercent: 0,
 
+                    // Kontostand-Verrechnung: bereits verrechneter Anteil dieses Trades.
+                    settled: {{ if .trade }}{{ .trade.Settled }}{{ else }}0{{ end }},
+                    reconcileAmount: 0,
+                    reconciling: false,
+                    reconcileError: "",
+                    // Realisiertes Ergebnis aus den Exits (spiegelt Trade.RealizedPnL in Go).
+                    get realizedPnL() {
+                        const q = this.quantity > 0 ? this.quantity
+                            : (this.positionValue > 0 && this.entryPrice > 0 ? this.positionValue / this.entryPrice : 0);
+                        if (q <= 0 || this.entryPrice <= 0) return 0;
+                        const sign = this.traded === "short" ? -1 : 1;
+                        let pnl = 0;
+                        for (const e of this.exits) {
+                            const price = +e.price, qpart = +e.qty;
+                            if (!(price > 0)) continue;
+                            pnl += (price - this.entryPrice) * (q * qpart / 100) * sign;
+                        }
+                        return pnl;
+                    },
+                    get unsettled() { return this.realizedPnL - this.settled; },
+                    async reconcile() {
+                        this.reconciling = true;
+                        this.reconcileError = "";
+                        try {
+                            const body = new URLSearchParams({ amount: (+this.reconcileAmount).toFixed(2) });
+                            const res = await fetch("/reconcile/{{ if .trade }}{{ .trade.Pk }}{{ end }}", {
+                                method: "POST",
+                                headers: { "HX-Request": "true", "Content-Type": "application/x-www-form-urlencoded" },
+                                body,
+                            });
+                            if (!res.ok) { this.reconcileError = "Konnte nicht verrechnen."; return; }
+                            const data = await res.json();
+                            this.accountSize = +data.accountSize;
+                            this.settled = +data.settled;
+                            this.recompute();
+                            this.reconcileAmount = +(this.realizedPnL - this.settled).toFixed(2);
+                        } catch (e) {
+                            this.reconcileError = "Fehler: " + e;
+                        } finally {
+                            this.reconciling = false;
+                        }
+                    },
+
                     // Welches Feld zuletzt bearbeitet wurde = Anker; davon ausgehend
                     // werden die übrigen Felder berechnet.
                     lastEdited: "quantity",
@@ -67,6 +110,8 @@
                         this.lastEdited = this.quantity > 0 ? "quantity"
                             : (this.positionValue > 0 ? "positionValue" : "quantity");
                         this.recompute();
+                        // Verrechnungs-Vorschlag = noch offener Betrag.
+                        this.reconcileAmount = +this.unsettled.toFixed(2);
                     },
 
                     get signedDiff() {
@@ -388,6 +433,60 @@
             </button>
             <input type="hidden" name="exitsJSON" :value="JSON.stringify(exits)">
         </div>
+
+        {{ if .trade }}
+        <!-- Kontostand verrechnen -->
+        <div class="mt-3 p-3 rounded-2 border"
+             :class="Math.abs(unsettled) >= 0.01 ? 'border-warning' : 'border-secondary'"
+             x-show="exits.length > 0 || settled != 0 || Math.abs(realizedPnL) >= 0.01" x-cloak>
+            <div class="d-flex justify-content-between align-items-center">
+                <b>Kontostand verrechnen</b>
+                <span class="text-secondary meta-sm">Aktueller Kontostand: <b x-text="accountSize.toFixed(2)"></b> &euro;</span>
+            </div>
+            <table class="table table-sm table-dark mb-2 mt-2 align-middle">
+                <tbody>
+                    <tr>
+                        <td>Realisiertes Ergebnis (aus Exits)</td>
+                        <td :class="realizedPnL >= 0 ? 'text-success' : 'text-danger'"
+                            x-text="realizedPnL.toFixed(2) + ' €'"></td>
+                    </tr>
+                    <tr>
+                        <td>Bereits verrechnet</td>
+                        <td x-text="settled.toFixed(2) + ' €'"></td>
+                    </tr>
+                    <tr>
+                        <td>Offen</td>
+                        <td :class="Math.abs(unsettled) >= 0.01 ? 'text-warning fw-bold' : 'text-secondary'"
+                            x-text="unsettled.toFixed(2) + ' €'"></td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="d-flex gap-2 align-items-end flex-wrap">
+                <div>
+                    <label class="form-label mb-1 meta-sm">Betrag zum Verrechnen</label>
+                    <div class="input-group" style="max-width:220px">
+                        <input class="form-control" type="number" step="any"
+                               x-model.number="reconcileAmount"
+                               @keydown.enter.prevent>
+                        <span class="input-group-text">&euro;</span>
+                        <button type="button" class="btn btn-outline-light"
+                                @click="reconcileAmount = +unsettled.toFixed(2)"
+                                title="Offenen Betrag übernehmen"><i class="fa fa-rotate-left"></i></button>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-warning"
+                        :disabled="reconciling || reconcileAmount == 0" @click="reconcile()">
+                    <span x-show="reconciling" class="spinner-border spinner-border-sm me-1" x-cloak></span>
+                    Auf Kontostand verrechnen
+                </button>
+            </div>
+            <div class="text-danger mt-2" x-show="reconcileError" x-text="reconcileError" x-cloak></div>
+            <small class="text-secondary d-block mt-2">
+                Verrechnen ändert deinen gespeicherten Kontostand (Trading-Kapital, die Basis fürs Risiko).
+                Vorgeschlagen ist das aus den Exits errechnete, noch nicht verrechnete Ergebnis — du kannst den Betrag anpassen.
+            </small>
+        </div>
+        {{ end }}
 
 
         <!-- Screenshots -->
