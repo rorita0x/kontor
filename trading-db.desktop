@@ -2,8 +2,8 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Trading DB
-Comment=Start Trading DB server and open in Firefox
+Name=Kontor
+Comment=Start Kontor (Trading-Journal) server and open in Firefox
 Exec=bash -c '$HOME/trading-db/launch.sh'
 Icon=$HOME/trading-db/assets/icon_red.png
 Path=$HOME/trading-db
