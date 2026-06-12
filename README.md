@@ -58,9 +58,3 @@ go test ./...
 
 Abgedeckt sind die Trade-/Risiko-Logik und die Verrechnungs-Buchung über
 `/insert` (Letzteres als Handler-Test gegen eine isolierte Temp-DB).
-
-## Daten
-
-`trading.db` ist das echte Journal und wird – wie `uploads/` – von Git
-ignoriert. Für Tests immer eine eigene Temp-DB verwenden, nie gegen `trading.db`
-schreiben.
