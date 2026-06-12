@@ -1,0 +1,12 @@
+services:
+  trading-db:
+    build: .
+    image: trading-db
+    container_name: trading-db
+    restart: unless-stopped
+    ports:
+      - "18596:18596"
+    volumes:
+      # Persistente Daten: Journal-DB und hochgeladene Dateien.
+      - ./trading.db:/app/trading.db
+      - ./uploads:/app/uploads

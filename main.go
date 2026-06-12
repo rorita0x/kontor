@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
 	"reflect"
 
 	"github.com/asdine/storm/v3"
@@ -139,7 +140,13 @@ func main() {
 
 	src.CreateRoutes(db, r)
 
-	err = r.Run("127.0.0.1:18596")
+	// Im Container muss auf 0.0.0.0 gebunden werden, lokal bleibt es loopback.
+	addr := os.Getenv("LISTEN_ADDR")
+	if addr == "" {
+		addr = "127.0.0.1:18596"
+	}
+
+	err = r.Run(addr)
 	if err != nil {
 		log.Fatal(err)
 	}

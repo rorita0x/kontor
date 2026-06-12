@@ -1,0 +1,12 @@
+.git
+.idea
+.vscode
+*.db
+uploads/
+assets_src/
+node_modules/
+launch.sh
+trading-db.desktop
+Dockerfile
+docker-compose.yml
+README.md
