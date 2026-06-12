@@ -141,6 +141,10 @@
                     syncLeverageFromMargin() {
                         if (this.margin > 0 && this.notional > 0) this.leverage = +(this.notional / this.margin).toFixed(2);
                     },
+                    // Wie viel % des Kontostands bindet die Margin?
+                    get marginPercent() {
+                        return this.accountSize > 0 && this.margin > 0 ? this.margin / this.accountSize * 100 : 0;
+                    },
                     recalcMargin() {
                         // Hebel ist führend: bei geändertem Notional die Margin neu berechnen,
                         // sonst (nur Margin gesetzt) den Hebel ableiten.
@@ -361,9 +365,14 @@
             </div>
             <div class="col-6">
                 <label for="margin" class="form-label">Margin (Kontowährung)</label>
-                <input name="margin" id="margin" class="form-control"
-                       type="number" step="any" min="0" placeholder="gebundenes Kapital"
-                       x-model.number="margin" @input="syncLeverageFromMargin()">
+                <div class="input-group">
+                    <input name="margin" id="margin" class="form-control"
+                           type="number" step="any" min="0" placeholder="gebundenes Kapital"
+                           x-model.number="margin" @input="syncLeverageFromMargin()">
+                    <span class="input-group-text" x-show="marginPercent > 0" x-cloak
+                          title="Anteil der Margin am Kontostand"
+                          x-text="marginPercent.toFixed(1) + ' % vom Konto'"></span>
+                </div>
             </div>
             <small class="text-secondary d-block mt-1">
                 Hebel oder Margin eingeben — der jeweils andere Wert wird aus dem Positionswert
