@@ -50,8 +50,8 @@ func TestComputeStatsNoDecided(t *testing.T) {
 
 func TestComputeClassRisk(t *testing.T) {
 	trades := []Trade{
-		openTrade("AAA", 100, 95, 10),  // Risiko 50, Klasse Krypto
-		openTrade("BBB", 100, 90, 10),  // Risiko 100, Klasse Krypto
+		openTrade("AAA", 100, 95, 10), // Risiko 50, Klasse Krypto
+		openTrade("BBB", 100, 90, 10), // Risiko 100, Klasse Krypto
 		{Symbol: "AAA", Result: RESULT_WIN, EntryPrice: 100, StopLoss: 95, Quantity: 10}, // zählt nicht (geschlossen)
 	}
 	assets := []Asset{
@@ -200,7 +200,6 @@ func TestFlashMessage(t *testing.T) {
 		{"trade-deleted", true, "success"},
 		{"settings-saved", true, "success"},
 		{"reconcile-needed", true, "warning"},
-		{"reconciled", true, "success"},
 		{"unbekannt", false, ""},
 		{"", false, ""},
 	}

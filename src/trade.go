@@ -2,6 +2,7 @@ package src
 
 import (
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -9,6 +10,12 @@ type Exit struct {
 	Date     string `json:"date"`
 	Price    F32    `json:"price"`
 	Quantity F32    `json:"qty"`
+
+	// Settled hält fest, ob dieser Exit bereits mit dem Kontostand verrechnet
+	// wurde. SettledAmount ist der dabei tatsächlich gebuchte Betrag (kann vom
+	// rechnerischen Ergebnis abweichen, z. B. wegen Gebühren oder verteiltem Geld).
+	Settled       bool `json:"settled"`
+	SettledAmount F32  `json:"settledAmount"`
 }
 
 type Traded string
@@ -70,7 +77,15 @@ func (r TradeResult) Display() string {
 type F32 float32
 
 func (f *F32) UnmarshalText(b []byte) error {
-	v, err := strconv.ParseFloat(string(b), 32)
+	// Leeres Feld (z. B. ein noch nicht ausgefülltes Exit-Betragsfeld) als 0 lesen,
+	// damit ein einzelnes leeres Feld nicht das Dekodieren der ganzen Exit-Liste
+	// abbricht (encoding/json bräche bei ParseFloat-Fehler ab).
+	s := strings.TrimSpace(string(b))
+	if s == "" {
+		*f = 0
+		return nil
+	}
+	v, err := strconv.ParseFloat(s, 32)
 	if err != nil {
 		return err
 	}
@@ -107,50 +122,58 @@ type Trade struct {
 	Leverage      F32    `form:"leverage" json:"leverage"` // Hebel (z. B. 10 = 10x)
 	Margin        F32    `form:"margin" json:"margin"`     // gebundene Margin in Kontowährung
 	Exits         []Exit `json:"exits"`
-
-	// Settled ist der Teil des realisierten Ergebnisses dieses Trades, der bereits
-	// mit dem gespeicherten Kontostand (Trading-Kapital) verrechnet wurde. So
-	// erkennt die App, was noch offen zu verrechnen ist, und stupst nicht doppelt.
-	Settled F32 `form:"settled" json:"settled"`
 }
 
-// RealizedPnL ist das realisierte Ergebnis dieses Trades in Kontowährung,
-// berechnet aus den Exits: je Exit (Exit-Preis − Entry) × anteilige Stückzahl,
-// richtungsabhängig (bei Short umgekehrt). Die Exit-Menge wird als Prozent der
-// Position interpretiert. Dient nur als Vorschlag fürs Verrechnen.
-func (t Trade) RealizedPnL() F32 {
+// ExitPnL ist das rechnerische Ergebnis eines einzelnen Exits in Kontowährung:
+// (Exit-Preis − Entry) × anteilige Stückzahl, richtungsabhängig (bei Short
+// umgekehrt). Die Exit-Menge wird als Prozent der Position interpretiert. Dient
+// nur als Vorschlag für den zu verrechnenden Betrag.
+func (t Trade) ExitPnL(e Exit) F32 {
 	qty := t.EffectiveQty()
-	if qty <= 0 || t.EntryPrice <= 0 {
+	if qty <= 0 || t.EntryPrice <= 0 || e.Price <= 0 {
 		return 0
 	}
 	sign := F32(1)
 	if t.Traded == TRADED_SHORT {
 		sign = -1
 	}
-	var pnl F32
+	return (e.Price - t.EntryPrice) * (qty * e.Quantity / 100) * sign
+}
+
+// SettledTotal ist die Summe der tatsächlich verrechneten Beträge aller bereits
+// als verrechnet markierten Exits. Aus der Differenz zweier Stände (alt/neu)
+// ergibt sich, wie stark der Kontostand beim Speichern anzupassen ist.
+func (t Trade) SettledTotal() F32 {
+	var sum F32
 	for _, e := range t.Exits {
-		if e.Price <= 0 {
-			continue
+		if e.Settled {
+			sum += e.SettledAmount
 		}
-		part := qty * e.Quantity / 100
-		pnl += (e.Price - t.EntryPrice) * part * sign
 	}
-	return pnl
+	return sum
 }
 
-// UnsettledPnL ist der noch nicht mit dem Kontostand verrechnete Teil des
-// realisierten Ergebnisses. ~0 bedeutet: nichts offen.
-func (t Trade) UnsettledPnL() F32 {
-	return t.RealizedPnL() - t.Settled
+// UnsettledExitsPnL ist das rechnerische Ergebnis aller Exits, die noch nicht
+// verrechnet wurden – nur zur Anzeige (Badge in der Übersicht).
+func (t Trade) UnsettledExitsPnL() F32 {
+	var sum F32
+	for _, e := range t.Exits {
+		if !e.Settled && e.Price > 0 {
+			sum += t.ExitPnL(e)
+		}
+	}
+	return sum
 }
 
-// NeedsReconcile meldet, ob ein nennenswerter Betrag offen ist (≥ 1 Cent).
+// NeedsReconcile meldet, ob es einen realen Exit (mit Preis) gibt, der noch
+// nicht mit dem Kontostand verrechnet wurde.
 func (t Trade) NeedsReconcile() bool {
-	d := t.UnsettledPnL()
-	if d < 0 {
-		d = -d
+	for _, e := range t.Exits {
+		if e.Price > 0 && !e.Settled {
+			return true
+		}
 	}
-	return d >= 0.01
+	return false
 }
 
 // signedDiff ist der richtungsabhängige Kursabstand vom Entry zum Stop-Loss.

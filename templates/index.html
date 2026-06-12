@@ -308,8 +308,8 @@
                 {{if .NeedsReconcile}}
                 <span class="d-block my-1">
                     <a href="/edit/{{.Pk}}" class="badge text-bg-warning text-decoration-none"
-                       title="Realisiertes Ergebnis noch nicht mit dem Kontostand verrechnet">
-                        <i class="fa fa-scale-balanced"></i> Nicht verrechnet: {{.UnsettledPnL}} &euro;
+                       title="Mindestens ein Exit ist noch nicht mit dem Kontostand verrechnet">
+                        <i class="fa fa-scale-balanced"></i> Exit nicht verrechnet (ca. {{.UnsettledExitsPnL}} &euro;)
                     </a>
                 </span>
                 {{end}}
