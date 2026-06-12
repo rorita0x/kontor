@@ -48,6 +48,8 @@ Alternativ startet `./launch.sh` den Server und öffnet ihn in einem eigenen
 Firefox-Profil; beim Schließen des Fensters wird der Server wieder beendet. Für
 den Desktop liegt zusätzlich `trading-db.desktop` bei.
 
+> Das Firefox Profil muss manuell angelegt werden, wenn man die Verknüpfung nutzen will!
+
 ## Tests
 
 ```bash
