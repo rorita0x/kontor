@@ -33,7 +33,7 @@
                             if (!res.ok) { this.addAssetError = "Konnte Asset nicht speichern."; return; }
                             this.symbols = await res.json();
                             this.symbolClass[sym] = this.newClass;
-                            this.$nextTick(() => { this.selectedSymbol = sym; });
+                            this.$nextTick(() => { this.selectedSymbol = sym; this.applyDefaultRisk(); });
                             this.showAssetModal = false;
                             this.newSymbol = "";
                             this.newClass = "";
@@ -56,19 +56,52 @@
                     positionValue: {{ if .trade }}{{ .trade.PositionValue }}{{ else }}0{{ end }},
                     leverage: {{ if .trade }}{{ .trade.Leverage }}{{ else }}0{{ end }},
                     margin: {{ if .trade }}{{ .trade.Margin }}{{ else }}0{{ end }},
+                    riskAmount: 0,
+                    riskPercent: 0,
 
-                    syncFromQty() {
-                        if (this.entryPrice > 0) this.positionValue = +(this.quantity * this.entryPrice).toFixed(2);
-                        this.recalcMargin();
+                    // Welches Feld zuletzt bearbeitet wurde = Anker; davon ausgehend
+                    // werden die übrigen Felder berechnet.
+                    lastEdited: "quantity",
+                    edit(field) { this.lastEdited = field; this.recompute(); },
+                    initCalc() {
+                        this.lastEdited = this.quantity > 0 ? "quantity"
+                            : (this.positionValue > 0 ? "positionValue" : "quantity");
+                        this.recompute();
                     },
-                    syncFromValue() {
-                        if (this.entryPrice > 0) this.quantity = +(this.positionValue / this.entryPrice).toFixed(8);
-                        this.recalcMargin();
+
+                    get signedDiff() {
+                        // positiv = Stop in Verlustrichtung; negativ = Stop im Gewinn
+                        return this.traded === "short"
+                            ? this.stopLoss - this.entryPrice
+                            : this.entryPrice - this.stopLoss;
                     },
-                    onEntryChange() {
-                        // Entry hat sich geändert: Positionswert aus Stückzahl neu ableiten (Menge bleibt führend)
-                        if (this.quantity > 0) this.syncFromQty();
-                        else this.syncFromValue();
+
+                    // Berechnet alle abhängigen Felder neu. Aus dem Anker wird zuerst die
+                    // Stückzahl abgeleitet, daraus dann Positionswert, Risiko (€ und %)
+                    // sowie Margin/Hebel. Das Ankerfeld selbst bleibt unangetastet, damit
+                    // die Eingabe stabil bleibt.
+                    recompute() {
+                        const D = this.signedDiff;
+                        const pricesOk = this.entryPrice > 0 && this.stopLoss > 0;
+
+                        if (this.lastEdited === "positionValue") {
+                            if (this.entryPrice > 0) this.quantity = +(this.positionValue / this.entryPrice).toFixed(8);
+                        } else if (this.lastEdited === "riskAmount") {
+                            if (pricesOk && D !== 0) this.quantity = +(this.riskAmount / D).toFixed(8);
+                        } else if (this.lastEdited === "riskPercent") {
+                            if (pricesOk && D !== 0 && this.accountSize > 0)
+                                this.quantity = +((this.riskPercent / 100 * this.accountSize) / D).toFixed(8);
+                        }
+
+                        const q = this.quantity;
+                        if (this.lastEdited !== "positionValue" && this.entryPrice > 0)
+                            this.positionValue = +(q * this.entryPrice).toFixed(2);
+                        if (this.lastEdited !== "riskAmount")
+                            this.riskAmount = pricesOk ? +(q * D).toFixed(2) : 0;
+                        if (this.lastEdited !== "riskPercent")
+                            this.riskPercent = this.accountSize > 0 ? +(this.riskAmount / this.accountSize * 100).toFixed(2) : 0;
+
+                        this.recalcMargin();
                     },
 
                     // Notional = Positionswert (Gesamt-Exposure), notfalls aus Menge × Entry.
@@ -88,26 +121,6 @@
                         // sonst (nur Margin gesetzt) den Hebel ableiten.
                         if (this.leverage > 0) this.syncMarginFromLeverage();
                         else if (this.margin > 0) this.syncLeverageFromMargin();
-                    },
-                    get effectiveQty() {
-                        if (this.quantity > 0) return this.quantity;
-                        if (this.positionValue > 0 && this.entryPrice > 0) return this.positionValue / this.entryPrice;
-                        return 0;
-                    },
-                    get signedDiff() {
-                        // positiv = Stop in Verlustrichtung; negativ = Stop im Gewinn
-                        return this.traded === "short"
-                            ? this.stopLoss - this.entryPrice
-                            : this.entryPrice - this.stopLoss;
-                    },
-                    get riskAmount() {
-                        const q = this.effectiveQty;
-                        if (q <= 0 || this.entryPrice <= 0 || this.stopLoss <= 0) return 0;
-                        return q * this.signedDiff;
-                    },
-                    get riskPercent() {
-                        if (this.accountSize <= 0) return 0;
-                        return this.riskAmount / this.accountSize * 100;
                     },
 
                     // Bereits offenes Risiko (ohne diesen Eintrag) – serverseitig vorberechnet.
@@ -143,7 +156,32 @@
                         if (this.accountSize > 0) return pct.toFixed(2) + "% (" + amount.toFixed(2) + " €)";
                         return amount.toFixed(2) + " €";
                     },
+
+                    // Noch verfügbarer Risiko-Rahmen fürs Asset (vor diesem Eintrag):
+                    // kleinerer Wert aus Asset- und Sektor-Frei. null, wenn kein Limit greift.
+                    get availFree() {
+                        const cands = [];
+                        if (this.assetLimitPct > 0) cands.push({
+                            pct: this.assetLimitPct - this.existSymbol.pct,
+                            amount: this.assetLimitPct * this.accountSize / 100 - this.existSymbol.amount,
+                        });
+                        if (this.classLimitPct > 0) cands.push({
+                            pct: this.classLimitPct - this.existClass.pct,
+                            amount: this.classLimitPct * this.accountSize / 100 - this.existClass.amount,
+                        });
+                        if (!cands.length) return null;
+                        return cands.reduce((a, b) => b.pct < a.pct ? b : a);
+                    },
+                    // Setzt das Risiko-Feld auf den verfügbaren Rahmen des gewählten Assets.
+                    applyDefaultRisk() {
+                        const f = this.availFree;
+                        if (!f) return;
+                        this.riskAmount = Math.max(0, +f.amount.toFixed(2));
+                        this.lastEdited = "riskAmount";
+                        this.recompute();
+                    },
             }'
+        x-init="initCalc()"
 >
     <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
         <h3 class="mb-0">{{ if .trade }}Eintrag bearbeiten{{ else }}Neuer Eintrag{{ end }}</h3>
@@ -170,7 +208,7 @@
         <label for="symbol" class="form-label">Asset</label>
         <div class="input-group has-validation">
             <select id="symbol" name="symbol" class="form-select" required
-                    @change="selectedSymbol = $event.target.value">
+                    @change="selectedSymbol = $event.target.value; applyDefaultRisk()">
                 <option value="">---</option>
                 <template x-for="symbol in symbols" :key="symbol">
                     <option :value="symbol" :selected="symbol === selectedSymbol" x-text="symbol"></option>
@@ -213,7 +251,7 @@
         <!-- Traded -->
         <div class="mt-2">
             <label for="traded" class="form-label">Trade</label>
-            <select id="traded" name="traded" class="form-select" required x-model="traded">
+            <select id="traded" name="traded" class="form-select" required x-model="traded" @change="recompute()">
                 <option value="" {{ if not .trade }}selected{{ end }}>-- Bitte ausfüllen --</option>
                 <option value="skip"  {{ if and .trade (eq .trade.Traded "skip") }}selected{{ end }}>Skip</option>
                 <option value="long"  {{ if and .trade (eq .trade.Traded "long") }}selected{{ end }}>Long</option>
@@ -240,13 +278,13 @@
                 <label for="entryPrice" class="form-label">Entry Preis</label>
                 <input name="entryPrice" id="entryPrice" class="form-control"
                        type="number" step="any" min="0"
-                       x-model.number="entryPrice" @input="onEntryChange()">
+                       x-model.number="entryPrice" @input="recompute()">
             </div>
             <div class="col-6">
                 <label for="stopLoss" class="form-label">Stoploss Preis</label>
                 <input name="stopLoss" id="stopLoss" class="form-control"
                        type="number" step="any" min="0"
-                       x-model.number="stopLoss">
+                       x-model.number="stopLoss" @input="recompute()">
             </div>
         </div>
 
@@ -256,15 +294,36 @@
                 <label for="quantity" class="form-label">Stückzahl (Units)</label>
                 <input name="quantity" id="quantity" class="form-control"
                        type="number" step="any" min="0" placeholder="z.B. 0.5 BTC / 100 Aktien"
-                       x-model.number="quantity" @input="syncFromQty()">
+                       x-model.number="quantity" @input="edit('quantity')">
             </div>
             <div class="col-6">
                 <label for="positionValue" class="form-label">Positionswert (Notional)</label>
                 <input name="positionValue" id="positionValue" class="form-control"
                        type="number" step="any" min="0" placeholder="Gesamt-Exposure in Kontowährung"
-                       x-model.number="positionValue" @input="syncFromValue()">
+                       x-model.number="positionValue" @input="edit('positionValue')">
             </div>
             <small class="text-secondary d-block mt-1">Es genügt, eines von beiden zu füllen — das andere wird aus dem Entry-Preis berechnet.</small>
+        </div>
+
+        <!-- Risiko direkt vorgeben (alternativ zu Stückzahl/Positionswert) -->
+        <div class="row mt-2">
+            <div class="col-6">
+                <label for="riskAmount" class="form-label">Risiko (Kontowährung)</label>
+                <input id="riskAmount" class="form-control"
+                       type="number" step="any"
+                       x-model.number="riskAmount" @input="edit('riskAmount')">
+            </div>
+            <div class="col-6">
+                <label for="riskPercent" class="form-label">Risiko (% vom Konto)</label>
+                <input id="riskPercent" class="form-control"
+                       type="number" step="any"
+                       x-model.number="riskPercent" @input="edit('riskPercent')"
+                       :disabled="accountSize <= 0">
+            </div>
+            <small class="text-secondary d-block mt-1">
+                Du kannst auch direkt dein Risiko vorgeben — Stückzahl &amp; Positionswert werden dann
+                aus Entry/Stop berechnet. Voreingestellt ist der noch freie Risiko-Rahmen des Assets.
+            </small>
         </div>
 
         <!-- Hebel & Margin -->
