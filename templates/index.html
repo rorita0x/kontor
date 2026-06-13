@@ -114,6 +114,57 @@
     </div>
     {{end}}
 
+    {{if and .accountSize .marginBuffer.OpenCount}}
+    <div class="mb-3 p-3 border rounded-2 {{if gt .marginBuffer.ExtraMargin 0.0}}border-warning{{else}}border-secondary{{end}}">
+        <b>Margin-Puffer</b>
+        <span class="meta-sm text-secondary">(Ziel: {{ printf "%.0f" .marginBuffer.TargetPct }}% Kontostatus &middot; <a href="/settings">ändern</a>)</span>
+        <div class="row g-3 mt-1">
+            <div class="col-auto">
+                <span class="meta-sm text-secondary d-block">Reservierte Margin</span>
+                <b>{{ .marginBuffer.CurrentMargin }} &euro;</b>
+            </div>
+            <div class="col-auto">
+                <span class="meta-sm text-secondary d-block">Empfohlen gesamt</span>
+                <b>{{ .marginBuffer.RecommendedMargin }} &euro;</b>
+            </div>
+            <div class="col-auto">
+                <span class="meta-sm text-secondary d-block">Davon Extra nötig</span>
+                <b class="{{if gt .marginBuffer.ExtraMargin 0.0}}text-danger{{else}}text-success{{end}}">{{ .marginBuffer.ExtraMargin }} &euro;</b>
+                <span class="meta-sm text-secondary">({{ .marginBuffer.ExtraPct }}% vom Konto)</span>
+            </div>
+        </div>
+        {{if .marginBuffer.Items}}
+        <table class="table table-sm table-dark mt-2 mb-0">
+            <thead>
+                <tr><th>Asset</th><th>Richtung</th><th>Reserviert &euro;</th><th>Nötig &euro;</th><th>Extra &euro;</th></tr>
+            </thead>
+            <tbody>
+                {{range .marginBuffer.Items}}
+                <tr>
+                    <td>{{.Symbol}}</td>
+                    <td>{{.Direction}}</td>
+                    {{if .Unreachable}}
+                    <td>{{.CurrentMargin}}</td>
+                    <td colspan="2" class="text-danger">per Margin nicht erreichbar &mdash; engeren Stop / weniger Hebel</td>
+                    {{else}}
+                    <td>{{.CurrentMargin}}</td>
+                    <td>{{.ReqMargin}}</td>
+                    <td class="text-danger">+{{.ExtraMargin}}</td>
+                    {{end}}
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+        {{else}}
+        <div class="text-success meta-sm mt-2">&#10003; Alle offenen Trades sind beim Ziel-Status abgedeckt &mdash; keine zusätzliche Margin nötig.</div>
+        {{end}}
+        <div class="form-text mt-2">
+            Konservative Pro-Trade-Summe (isoliert): so viel Margin solltest du insgesamt vorhalten, damit jeder Stop-Loss
+            beim Ziel-Status greift. Der Broker rechnet kontoweit (Cross-Margin) &mdash; ein Stop-out kann andere Positionen mitreißen.
+        </div>
+    </div>
+    {{end}}
+
     <!-- Filter (einklappbar) -->
     <div class="mb-1">
         <button class="btn btn-outline-light btn-sm" type="button" data-bs-toggle="collapse"

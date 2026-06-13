@@ -74,6 +74,10 @@
                     riskAmount: 0,
                     riskPercent: 0,
 
+                    // Ziel-Kontostatus (%) für den Margin-Puffer (25/45/50). Vorbelegt aus
+                    // den Einstellungen, pro Trade durchspielbar (nicht persistent).
+                    marginTarget: {{ .marginTargetPct }},
+
                     // Wechselkurs (Kontowährung je Trade-Währung) bei Eröffnung. Alle
                     // Geldfelder sind in Trade-Währung (z. B. USD); fx rechnet aufs Konto
                     // (EUR) um. Leer/0 = 1 (Trade läuft in Kontowährung).
@@ -197,6 +201,103 @@
                         // sonst (nur Margin gesetzt) den Hebel ableiten.
                         if (this.leverage > 0) this.syncMarginFromLeverage();
                         else if (this.margin > 0) this.syncLeverageFromMargin();
+                    },
+
+                    // --- Liquidation / Stop-out (isoliert) --------------------------
+                    // Es zählt NUR die Margin dieses Trades, NICHT der Kontostand. Die
+                    // Margin trägt die Position allein: Stop-out, sobald der Kontostatus auf
+                    // 25 % fällt. Unter 50 % gilt Status = (Eigenkapital / Margin) × 50, also
+                    // Status T % ⇔ Eigenkapital(P) = m × Margin(P) mit m = T/50. Isoliert ist
+                    // das Eigenkapital = Margin + Gewinn/Verlust, und die Margin skaliert mit
+                    // dem Kurs (Margin(P) = Margin × P/Entry). Aufgelöst hängt der Schwellenkurs
+                    // nur von Entry, Richtung und effektivem Hebel L = Notional/Margin ab:
+                    //     long:  Entry × (L−1)/(L−m)      short: Entry × (L+1)/(L+m)
+                    // Der Liquidationskurs ist der harte Stop-out (m = 0,5) und wird immer
+                    // gezeigt; die wählbare Ziel-Schwelle (marginTarget) steuert nur den Puffer.
+                    // Alles in Trade-Währung (USD) – passend zum Margin-Feld; der Kurs selbst
+                    // ist ohnehin währungsunabhängig.
+                    get qtyEff() {
+                        if (this.quantity > 0) return this.quantity;
+                        if (this.positionValue > 0 && this.entryPrice > 0) return this.positionValue / this.entryPrice;
+                        return 0;
+                    },
+                    // Notional (Trade-Währung) und effektiver Hebel aus Notional/Margin.
+                    get notionalTrade() { return this.qtyEff * this.entryPrice; },
+                    get effLev() {
+                        return this.margin > 0 && this.notionalTrade > 0 ? this.notionalTrade / this.margin : 0;
+                    },
+                    get liqReady() {
+                        return this.margin > 0 && this.entryPrice > 0 && this.qtyEff > 0
+                            && this.effLev > 0 && (this.traded === "long" || this.traded === "short");
+                    },
+                    // Ziel-Faktor m = Ziel-Status/50 (25→0,5, 45→0,9, 50→1,0).
+                    get targetM() { return this.marginTarget / 50; },
+                    // Schwellenkurs für Status-Faktor m.
+                    threshPrice(m) {
+                        if (!this.liqReady) return 0;
+                        const L = this.effLev;
+                        const p = this.traded === "short"
+                            ? this.entryPrice * (L + 1) / (L + m)
+                            : this.entryPrice * (L - 1) / (L - m);
+                        return p > 0 ? p : 0;
+                    },
+                    // Liegt der Schwellenkurs in Verlustrichtung? (long darunter, short darüber)
+                    threshValid(p) {
+                        if (!(p > 0)) return false;
+                        return this.traded === "short" ? p > this.entryPrice : p < this.entryPrice;
+                    },
+                    // Harte Liquidation (Stop-out 25 %, m = 0,5) – immer angezeigt. Bei Hebel
+                    // ≤ 1 (Margin ≥ Notional) gibt es keine Liquidation (liqValid = false).
+                    get liqPrice() { return this.threshPrice(0.5); },
+                    get liqValid() { return this.threshValid(this.liqPrice); },
+                    get liqDistPct() {
+                        return this.liqValid ? Math.abs(this.liqPrice - this.entryPrice) / this.entryPrice * 100 : 0;
+                    },
+                    // Verlust (Trade-Währung) beim Erreichen des Liquidationskurses (negativ).
+                    get liqLoss() {
+                        if (!this.liqValid) return 0;
+                        const dir = this.traded === "short" ? -1 : 1;
+                        return this.qtyEff * (this.liqPrice - this.entryPrice) * dir;
+                    },
+                    // Schwellenkurs zum gewählten Ziel-Status (= Liquidationskurs bei 25 %).
+                    get targetPrice() { return this.threshPrice(this.targetM); },
+                    get targetValid() { return this.threshValid(this.targetPrice); },
+                    get targetDistPct() {
+                        return this.targetValid ? Math.abs(this.targetPrice - this.entryPrice) / this.entryPrice * 100 : 0;
+                    },
+                    // Margin (Trade-Währung), die mindestens nötig wäre, damit der Stop bei
+                    // ≥ Ziel-Status greift: M ≥ Risiko / (1 − m × Stop/Entry). Nenner ≤ 0 ⇒
+                    // per Margin nicht erreichbar (Infinity), z. B. tiefer Short-Stop.
+                    get reqMarginForStop() {
+                        if (!this.liqReady || !(this.stopLoss > 0) || this.riskAmount <= 0) return 0;
+                        const f = 1 - this.targetM * this.stopLoss / this.entryPrice;
+                        return f > 0 ? this.riskAmount / f : Infinity;
+                    },
+                    // Greift der Stop-Loss vor dem Ziel-Status? Über die Margin beurteilt
+                    // (robust auch bei m = 1). null = nicht beurteilbar (kein Risiko / Daten fehlen).
+                    get stopBeforeLiq() {
+                        if (!this.liqReady || !(this.stopLoss > 0) || this.riskAmount <= 0) return null;
+                        const r = this.reqMarginForStop;
+                        if (!isFinite(r)) return false;
+                        return this.margin >= r;
+                    },
+                    // Zusätzlich nötige Margin (Trade-Währung). 0 = Stop ist bereits sicher.
+                    get extraMarginNeeded() {
+                        const r = this.reqMarginForStop;
+                        if (!isFinite(r)) return r;
+                        return Math.max(0, r - this.margin);
+                    },
+                    // Margin-Puffer (Trade-Währung) über der nötigen Margin: > 0 = sicher.
+                    get marginBuffer() {
+                        if (!this.liqReady || this.riskAmount <= 0 || !isFinite(this.reqMarginForStop)) return 0;
+                        return this.margin - this.reqMarginForStop;
+                    },
+                    // Kursformat passend zur Größenordnung (Krypto vs. Aktien/Indizes).
+                    fmtPrice(p) {
+                        if (!(p > 0)) return "—";
+                        const a = Math.abs(p);
+                        const d = a >= 100 ? 2 : a >= 1 ? 3 : a >= 0.01 ? 5 : 8;
+                        return p.toFixed(d);
                     },
 
                     // Bereits offenes Risiko (ohne diesen Eintrag) – serverseitig vorberechnet.
@@ -472,6 +573,86 @@
                     Kein Risiko — Stop liegt im Gewinn (gesicherter Gewinn:
                     <b x-text="(-riskAmountAcct).toFixed(2)"></b> &euro;<template x-if="accountSize > 0"><span>, <b x-text="(-riskPercent).toFixed(2)"></b> % freies Risiko-Budget</span></template>)
                 </span>
+            </template>
+        </div>
+
+        <!-- Liquidation (isoliert, nur Trade-Margin) & nötiger Margin-Puffer -->
+        <div class="mt-2 p-2 border rounded-2"
+             :class="liqValid && stopBeforeLiq === false ? 'border-danger' : 'border-secondary'"
+             x-show="entryPrice > 0 && qtyEff > 0 && (traded === 'long' || traded === 'short')" x-cloak>
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+                <span class="meta-sm text-secondary">
+                    Liquidation (Stop-out bei 25&nbsp;% Kontostatus &mdash; isoliert, es zählt nur die Margin dieses Trades)
+                </span>
+                <span class="d-flex align-items-center gap-1 meta-sm">
+                    <label for="marginTarget" class="mb-0 text-secondary">Ziel-Schwelle für Puffer:</label>
+                    <select id="marginTarget" class="form-select form-select-sm" style="width:auto" x-model.number="marginTarget">
+                        <option value="25">25&nbsp;% &middot; Stop-out</option>
+                        <option value="30">30&nbsp;% &middot; Sicherheitspuffer</option>
+                        <option value="45">45&nbsp;% &middot; Margin-Call</option>
+                        <option value="50">50&nbsp;% &middot; keine freien Mittel</option>
+                    </select>
+                </span>
+            </div>
+
+            <!-- Voraussetzungen / Sonderfälle -->
+            <template x-if="margin <= 0">
+                <div class="text-secondary">Hebel oder Margin eingeben, um den Liquidationskurs zu berechnen.</div>
+            </template>
+            <template x-if="liqReady && !liqValid">
+                <div class="text-success">
+                    &#10003; Kein Liquidationsrisiko &mdash; Position ist ungehebelt (Margin &ge; Positionswert).
+                </div>
+            </template>
+
+            <div class="row g-2" x-show="liqValid">
+                <div class="col-sm-6">
+                    Liquidationskurs:
+                    <b x-text="fmtPrice(liqPrice)"></b>
+                    <span class="text-secondary">(<span x-text="(traded === 'short' ? '+' : '−') + liqDistPct.toFixed(1)"></span>&nbsp;% vom Entry, Hebel &asymp; <span x-text="effLev.toFixed(1)"></span>&times;)</span>
+                </div>
+                <div class="col-sm-6">
+                    Verlust bei Liquidation:
+                    <b class="text-danger" x-text="(-liqLoss).toFixed(2)"></b> <span class="text-secondary">Trade-Währung</span>
+                </div>
+                <!-- Schwellenkurs zur gewählten Ziel-Schwelle (nur wenn > 25 % und sinnvoll) -->
+                <div class="col-12" x-show="marginTarget > 25 && targetValid" x-cloak>
+                    <span class="text-secondary">Schwellenkurs für &ge;&nbsp;<span x-text="marginTarget"></span>&nbsp;% Status:</span>
+                    <b x-text="fmtPrice(targetPrice)"></b>
+                    <span class="text-secondary">(<span x-text="(traded === 'short' ? '+' : '−') + targetDistPct.toFixed(1)"></span>&nbsp;% vom Entry)</span>
+                </div>
+            </div>
+
+            <!-- Verhältnis Stop-Loss ↔ Ziel-Schwelle -->
+            <template x-if="liqValid && stopBeforeLiq === true">
+                <div class="mt-2 text-success">
+                    &#10003; Dein Stop-Loss greift vor der <span x-text="marginTarget"></span>&nbsp;%-Schwelle.
+                    <template x-if="marginBuffer > 0">
+                        <span class="text-secondary">
+                            Margin-Puffer: <b x-text="marginBuffer.toFixed(2)"></b> über der nötigen
+                            Margin (<b x-text="reqMarginForStop.toFixed(2)"></b>, Trade-Währung).
+                        </span>
+                    </template>
+                </div>
+            </template>
+            <template x-if="liqValid && stopBeforeLiq === false">
+                <div class="mt-2 text-danger">
+                    &#9888; Achtung: Bei diesem Stop-Abstand fällt der Kontostatus <b>vor</b> deinem Stop-Loss
+                    unter <span x-text="marginTarget"></span>&nbsp;%.
+                    <template x-if="isFinite(extraMarginNeeded)">
+                        <span>
+                            Du bräuchtest <b x-text="extraMarginNeeded.toFixed(2)"></b> zusätzliche Margin
+                            (nötige Margin gesamt: <b x-text="reqMarginForStop.toFixed(2)"></b>, Trade-Währung),
+                            damit der Stop zuerst greift &mdash; oder weniger Hebel bzw. engeren Stop wählen.
+                        </span>
+                    </template>
+                    <template x-if="!isFinite(extraMarginNeeded)">
+                        <span>
+                            Das ist allein über mehr Margin nicht erreichbar (der Stop liegt jenseits des
+                            maximal möglichen Schwellenkurses) &mdash; engeren Stop oder weniger Hebel wählen.
+                        </span>
+                    </template>
+                </div>
             </template>
         </div>
 

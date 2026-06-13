@@ -68,6 +68,55 @@ func loadSettings(db *storm.DB) Settings {
 	return s
 }
 
+// effectiveMarginTarget liefert den Ziel-Kontostatus für den Margin-Puffer.
+// Nicht gesetzt (0) bedeutet Default 25 % (harter Stop-out).
+func effectiveMarginTarget(s Settings) F32 {
+	if s.MarginTargetPct <= 0 {
+		return 25
+	}
+	return s.MarginTargetPct
+}
+
+// computeMarginBuffer summiert über alle offenen Trades, wie viel Margin gebunden
+// ist und wie viel insgesamt nötig wäre, damit jeder Stop beim Ziel-Status greift.
+// m = Ziel/50 (25 %→0,5). Es zählt nur die Margin der Trades (isoliert) – wie auf
+// dem Konto, das nur die Margin der aktiven Trades vorhält.
+func computeMarginBuffer(trades []Trade, accountSize, targetPct F32) MarginBufferSummary {
+	m := float64(targetPct) / 50
+	out := MarginBufferSummary{TargetPct: targetPct}
+	for _, t := range trades {
+		if t.Result != RESULT_NOTFINISHED {
+			continue
+		}
+		out.OpenCount++
+		cur := t.MarginAcct()
+		out.CurrentMargin += cur
+		req := t.ReqMarginAcct(m)
+		extra := t.ExtraMarginAcct(m)
+
+		if req < 0 { // Ziel-Status per Margin nicht erreichbar
+			out.RecommendedMargin += cur
+			out.Items = append(out.Items, MarginBufferItem{
+				Symbol: t.Symbol, Direction: t.Traded, CurrentMargin: cur, Unreachable: true,
+			})
+			continue
+		}
+		out.RecommendedMargin += cur + extra
+		out.ExtraMargin += extra
+		if extra > 0 {
+			out.Items = append(out.Items, MarginBufferItem{
+				Symbol: t.Symbol, Direction: t.Traded,
+				CurrentMargin: cur, ReqMargin: req, ExtraMargin: extra,
+			})
+		}
+	}
+	if accountSize > 0 {
+		out.ExtraPct = out.ExtraMargin / accountSize * 100
+	}
+	sort.Slice(out.Items, func(i, j int) bool { return out.Items[i].Symbol < out.Items[j].Symbol })
+	return out
+}
+
 func computeClassRisk(trades []Trade, assets []Asset, classes []AssetClass, accountSize F32) []ClassRiskSummary {
 	symbolToClass := make(map[string]string, len(assets))
 	for _, a := range assets {
@@ -315,6 +364,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 		flash, flashType := flashMessage(c.Query("flash"))
 
 		classRisk := computeClassRisk(trades, assets, classes, settings.AccountSize)
+		marginTarget := effectiveMarginTarget(settings)
 
 		c.HTML(200, "index", gin.H{
 			"tags":              stringTags,
@@ -324,6 +374,8 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"symbolRisk":        computeSymbolRisk(trades, assets, settings.PerAssetRiskLimit, settings.AccountSize, classRisk),
 			"perAssetRiskLimit": settings.PerAssetRiskLimit,
 			"stats":             computeStats(trades, settings.AccountSize),
+			"marginBuffer":      computeMarginBuffer(trades, settings.AccountSize, marginTarget),
+			"marginTargetPct":   marginTarget,
 			"accountSize":       settings.AccountSize,
 			"flash":             flash,
 			"flashType":         flashType,
@@ -410,6 +462,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 		settings := loadSettings(db)
 
 		classRisk := computeClassRisk(trades, assets, classes, settings.AccountSize)
+		marginTarget := effectiveMarginTarget(settings)
 
 		c.HTML(200, "index", gin.H{
 			"tags":              stringTags,
@@ -420,6 +473,8 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"symbolRisk":        computeSymbolRisk(trades, assets, settings.PerAssetRiskLimit, settings.AccountSize, classRisk),
 			"perAssetRiskLimit": settings.PerAssetRiskLimit,
 			"stats":             computeStats(filteredTrades, settings.AccountSize),
+			"marginBuffer":      computeMarginBuffer(filteredTrades, settings.AccountSize, marginTarget),
+			"marginTargetPct":   marginTarget,
 			"accountSize":       settings.AccountSize,
 		})
 	})
@@ -473,6 +528,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"assetClasses":      stringClasses,
 			"accountSize":       settings.AccountSize,
 			"perAssetRiskLimit": settings.PerAssetRiskLimit,
+			"marginTargetPct":   effectiveMarginTarget(settings),
 			"symbolRisk":        symbolRisk,
 			"classRisk":         classRisk,
 			"symbolClass":       symbolClass,
@@ -540,6 +596,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"assetClassLimits":  assetClasses,
 			"accountSize":       settings.AccountSize,
 			"perAssetRiskLimit": settings.PerAssetRiskLimit,
+			"marginTargetPct":   effectiveMarginTarget(settings),
 			"flash":             flash,
 			"flashType":         flashType,
 		})
@@ -609,6 +666,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"trade":             trade,
 			"accountSize":       settings.AccountSize,
 			"perAssetRiskLimit": settings.PerAssetRiskLimit,
+			"marginTargetPct":   effectiveMarginTarget(settings),
 			"symbolRisk":        symbolRisk,
 			"classRisk":         classRisk,
 			"symbolClass":       symbolClass,

@@ -296,6 +296,42 @@ func (t Trade) RiskPercent(accountSize F32) F32 {
 	return t.RiskAmountAcct() / accountSize * 100
 }
 
+// ReqMarginAcct ist die Margin (Kontowährung), die mindestens nötig wäre, damit der
+// Stop-Loss VOR dem Stop-out greift – isoliert betrachtet, nur über diesen Trade.
+// Anbieter-Status unter 50 %: Status = (Eigenkapital / Margin) × 50, Ziel T% ⇔
+// Eigenkapital(Stop) ≥ m × Margin(Stop) mit m = T/50; daraus folgt
+//
+//	M ≥ Risiko / (1 − m × Stop/Entry).
+//
+// Rückgabe 0, wenn kein Risiko/keine Verlustrichtung. Rückgabe < 0 signalisiert
+// "per Margin nicht erreichbar" (Nenner ≤ 0, z. B. sehr tiefer Short-Stop).
+func (t Trade) ReqMarginAcct(m float64) F32 {
+	risk := t.RiskAmountAcct()
+	if risk <= 0 || t.EntryPrice <= 0 || t.StopLoss <= 0 {
+		return 0
+	}
+	f := 1 - m*float64(t.StopLoss)/float64(t.EntryPrice)
+	if f <= 0 {
+		return -1 // nicht erreichbar
+	}
+	return F32(float64(risk) / f)
+}
+
+// ExtraMarginAcct ist die zusätzlich zur bereits gebundenen Margin nötige Margin
+// (Kontowährung), damit der Stop bei ≥ Ziel-Status greift. 0 = Stop ist sicher.
+// Rückgabe < 0 wird durchgereicht (nicht erreichbar).
+func (t Trade) ExtraMarginAcct(m float64) F32 {
+	req := t.ReqMarginAcct(m)
+	if req < 0 {
+		return req // nicht erreichbar
+	}
+	extra := req - t.MarginAcct()
+	if extra < 0 {
+		return 0
+	}
+	return extra
+}
+
 type Tag struct {
 	Title string `storm:"id"`
 }
@@ -338,6 +374,30 @@ type SymbolRiskSummary struct {
 	SectorBinds     bool // true, wenn das Sektor-Limit die kleinere (bindende) Grenze ist
 }
 
+// MarginBufferSummary fasst über alle offenen Trades zusammen, wie viel Margin
+// gebunden ist und wie viel insgesamt nötig wäre, damit jeder Stop beim gewählten
+// Ziel-Status (25/45/50 %) greift. Konservative Pro-Trade-Summe (isoliert).
+type MarginBufferSummary struct {
+	TargetPct         F32 // gewählter Ziel-Kontostatus in %
+	CurrentMargin     F32 // Summe der gebundenen Margin (Kontowährung)
+	RecommendedMargin F32 // Summe aus max(gebunden, nötig) je Trade
+	ExtraMargin       F32 // Summe der fehlenden Extra-Margin (Recommended − Current)
+	ExtraPct          F32 // ExtraMargin in % vom Konto
+	OpenCount         int // Anzahl offener Trades
+	Items             []MarginBufferItem
+}
+
+// MarginBufferItem ist ein offener Trade, der zusätzliche Margin braucht (oder
+// dessen Ziel-Status per Margin nicht erreichbar ist).
+type MarginBufferItem struct {
+	Symbol        string
+	Direction     Traded
+	CurrentMargin F32
+	ReqMargin     F32
+	ExtraMargin   F32
+	Unreachable   bool // Ziel-Status per Margin nicht erreichbar
+}
+
 // StatsSummary fasst Kennzahlen über eine Menge von Trades zusammen
 // (für die Kennzahlen-Leiste auf der Übersicht).
 type StatsSummary struct {
@@ -357,4 +417,5 @@ type Settings struct {
 	Pk                int `storm:"id" form:"-"`
 	AccountSize       F32 `form:"accountSize" json:"accountSize"`
 	PerAssetRiskLimit F32 `form:"perAssetRiskLimit" json:"perAssetRiskLimit"` // generelles Limit pro Asset in % vom Konto (nur informativ)
+	MarginTargetPct   F32 `form:"marginTargetPct" json:"marginTargetPct"`     // Ziel-Kontostatus (%) für den Margin-Puffer (25/45/50). 0 = Default 25
 }

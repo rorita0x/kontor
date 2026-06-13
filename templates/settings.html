@@ -30,12 +30,22 @@
                        type="number" step="any" min="0" value="{{ .perAssetRiskLimit }}"
                        placeholder="z. B. 2">
             </div>
+            <div>
+                <label for="marginTargetPct" class="form-label mb-1">Margin-Puffer-Ziel (Kontostatus)</label>
+                <select name="marginTargetPct" id="marginTargetPct" class="form-select">
+                    <option value="25" {{ if eq (printf "%.0f" .marginTargetPct) "25" }}selected{{ end }}>25 % – Stop-out (Standard)</option>
+                    <option value="30" {{ if eq (printf "%.0f" .marginTargetPct) "30" }}selected{{ end }}>30 % – Sicherheitspuffer</option>
+                    <option value="45" {{ if eq (printf "%.0f" .marginTargetPct) "45" }}selected{{ end }}>45 % – Margin-Call</option>
+                    <option value="50" {{ if eq (printf "%.0f" .marginTargetPct) "50" }}selected{{ end }}>50 % – keine freien Mittel</option>
+                </select>
+            </div>
             <button class="btn btn-primary" type="submit">Speichern</button>
             {{ if not .accountSize }}
             <span class="text-warning align-self-center">Kontowert setzen, damit Risiko-% berechnet werden kann.</span>
             {{ end }}
         </form>
         <div class="form-text mt-1">Das Asset-Limit gilt für alle Assets gleich und wird nicht erzwungen – es dient nur zur Anzeige in Übersicht und Eintrags-Formular.</div>
+        <div class="form-text mt-1">Margin-Puffer-Ziel: Kontostatus, den deine Trades beim Stop-Loss mindestens halten sollen. 25 % = bis zur harten Liquidation, 45 %/50 % = konservativer Puffer vor Margin-Call. Steuert die „Extra-Margin"-Berechnung in Übersicht und Formular.</div>
     </div>
 
     <!-- Tag-Verwaltung -->
