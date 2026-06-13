@@ -7,6 +7,8 @@ Trade-Ergebnisse mitführt.
 
 Die Oberfläche ist auf Deutsch.
 
+<img width="1338" height="1670" alt="grafik" src="https://github.com/user-attachments/assets/795726a6-28fa-452b-9825-4e2445573867" />
+
 ## Was es kann
 
 - **Trades erfassen** – Symbol, Richtung (Long/Short/Skip), Ergebnis, Entry,
