@@ -89,6 +89,10 @@ func computeMarginBuffer(trades []Trade, targetPct F32) MarginBufferSummary {
 		if t.Result != RESULT_NOTFINISHED {
 			continue
 		}
+		// Isolierte Margin liquidiert eigenständig – nicht Teil des Cross-Margin-Puffers.
+		if t.IsolatedMargin {
+			continue
+		}
 		out.OpenCount++
 		risk := t.RiskLossAcct()
 		marginEntry := t.MarginAcct()

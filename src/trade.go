@@ -151,6 +151,11 @@ type Trade struct {
 	Margin        F32    `form:"margin" json:"margin"`     // gebundene Margin in Trade-Währung
 	Exits         []Exit `json:"exits"`
 
+	// IsolatedMargin: nutzt dieser Trade isolierte Margin? Dann wird er eigenständig
+	// (unabhängig vom Kontoguthaben) liquidiert und gehört nicht in den kontoweiten
+	// Cross-Margin-Puffer (siehe computeMarginBuffer). Checkbox sendet "true"/nichts.
+	IsolatedMargin bool `form:"isolatedMargin" json:"isolatedMargin"`
+
 	// FxRate ist der Wechselkurs Kontowährung je Trade-Währung bei Eröffnung
 	// (z. B. EUR je USD ≈ 0,86). Alle Geldbeträge des Trades (Entry, Stop, Margin,
 	// Positionswert, Risiko) sind in Trade-Währung notiert; FxRate rechnet sie für

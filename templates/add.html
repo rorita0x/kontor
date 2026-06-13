@@ -71,6 +71,9 @@
                     positionValue: {{ if .trade }}{{ .trade.PositionValue }}{{ else }}0{{ end }},
                     leverage: {{ if .trade }}{{ .trade.Leverage }}{{ else }}0{{ end }},
                     margin: {{ if .trade }}{{ .trade.Margin }}{{ else }}0{{ end }},
+                    // Isolierte Margin: deaktiviert den Cross-Margin-Puffer-Teil dieses Trades
+                    // (Ziel-Schwelle + Einzahlungs-Beitrag) und schließt ihn aus der Startseiten-Berechnung aus.
+                    isolatedMargin: {{ if .trade }}{{ .trade.IsolatedMargin }}{{ else }}false{{ end }},
                     riskAmount: 0,
                     riskPercent: 0,
 
@@ -530,6 +533,16 @@
                 Hebel oder Margin eingeben — der jeweils andere Wert wird aus dem Positionswert
                 (<b x-text="notional.toFixed(2)"></b>, Trade-Währung) berechnet.
             </small>
+            <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" id="isolatedMargin"
+                       name="isolatedMargin" value="true" x-model="isolatedMargin">
+                <label class="form-check-label" for="isolatedMargin">
+                    Isolierte Margin
+                    <small class="text-secondary d-block">
+                        Eigenständige Liquidation — nicht Teil des kontoweiten Cross-Margin-Puffers.
+                    </small>
+                </label>
+            </div>
         </div>
 
         <!-- Wechselkurs Trade-Währung → Konto -->
@@ -579,13 +592,13 @@
 
         <!-- Liquidation (isoliert, nur Trade-Margin) & Beitrag zur nötigen Einzahlung -->
         <div class="mt-2 p-2 border rounded-2"
-             :class="liqValid && stopBeforeLiq === false ? 'border-danger' : 'border-secondary'"
+             :class="liqValid && stopBeforeLiq === false && !isolatedMargin ? 'border-danger' : 'border-secondary'"
              x-show="entryPrice > 0 && qtyEff > 0 && (traded === 'long' || traded === 'short')" x-cloak>
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
                 <span class="meta-sm text-secondary">
                     Liquidation (Stop-out bei 25&nbsp;% Kontostatus &mdash; isoliert, es zählt nur die Margin dieses Trades)
                 </span>
-                <span class="d-flex align-items-center gap-1 meta-sm">
+                <span class="d-flex align-items-center gap-1 meta-sm" x-show="!isolatedMargin">
                     <label for="marginTarget" class="mb-0 text-secondary">Ziel-Schwelle für Puffer:</label>
                     <select id="marginTarget" class="form-select form-select-sm" style="width:auto" x-model.number="marginTarget">
                         <option value="25">25&nbsp;% &middot; Stop-out</option>
@@ -617,7 +630,7 @@
                     <b class="text-danger" x-text="(-liqLoss).toFixed(2)"></b> <span class="text-secondary">Trade-Währung</span>
                 </div>
                 <!-- Schwellenkurs zur gewählten Ziel-Schwelle (nur wenn > 25 % und sinnvoll) -->
-                <div class="col-12" x-show="marginTarget > 25 && targetValid" x-cloak>
+                <div class="col-12" x-show="marginTarget > 25 && targetValid && !isolatedMargin" x-cloak>
                     <span class="text-secondary">Schwellenkurs für &ge;&nbsp;<span x-text="marginTarget"></span>&nbsp;% Status:</span>
                     <b x-text="fmtPrice(targetPrice)"></b>
                     <span class="text-secondary">(<span x-text="(traded === 'short' ? '+' : '−') + targetDistPct.toFixed(1)"></span>&nbsp;% vom Entry)</span>
@@ -625,7 +638,7 @@
             </div>
 
             <!-- Verhältnis Stop-Loss ↔ Ziel-Schwelle -->
-            <template x-if="liqValid && stopBeforeLiq === true">
+            <template x-if="liqValid && stopBeforeLiq === true && !isolatedMargin">
                 <div class="mt-2 text-success">
                     &#10003; Dein Stop-Loss greift vor der <span x-text="marginTarget"></span>&nbsp;%-Schwelle.
                     <span class="text-secondary">
@@ -634,7 +647,7 @@
                     </span>
                 </div>
             </template>
-            <template x-if="liqValid && stopBeforeLiq === false">
+            <template x-if="liqValid && stopBeforeLiq === false && !isolatedMargin">
                 <div class="mt-2 text-danger">
                     &#9888; Achtung: Bei diesem Stop-Abstand fällt der Kontostatus <b>vor</b> deinem Stop-Loss
                     unter <span x-text="marginTarget"></span>&nbsp;%.
