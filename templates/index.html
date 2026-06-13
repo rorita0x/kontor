@@ -376,28 +376,30 @@
                         </a>
                     {{end}}
                 </div>
-
-                <!-- Delete Modal -->
-                <div class="modal fade" id="confirmDeleteModal-{{.Pk}}" tabindex="-1" aria-labelledby="confirmDeleteLabel-{{.Pk}}" aria-hidden="true">
-                    <div class="modal-dialog modal-dialog-centered">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title" id="confirmDeleteLabel-{{.Pk}}">Löschen bestätigen</h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
-                            </div>
-                            <div class="modal-body">
-                                Diesen Eintrag wirklich löschen? Das kann nicht rückgängig gemacht werden.
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
-                                <button onclick="fetch('/delete/{{.Pk}}', { method: 'DELETE' }).then(_ => location.href = '/?flash=trade-deleted')" type="button" class="btn btn-danger" id="confirmDeleteButton-{{.Pk}}">Ja, löschen</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </div>
         {{end}}
     </div>
+
+    <!-- Delete-Modals (außerhalb der Karten, damit sie nicht im Karten-Kasten eingeklemmt werden) -->
+    {{range .trades}}
+    <div class="modal fade" id="confirmDeleteModal-{{.Pk}}" tabindex="-1" aria-labelledby="confirmDeleteLabel-{{.Pk}}" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmDeleteLabel-{{.Pk}}">Löschen bestätigen</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+                </div>
+                <div class="modal-body">
+                    Diesen Eintrag wirklich löschen? Das kann nicht rückgängig gemacht werden.
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                    <button onclick="fetch('/delete/{{.Pk}}', { method: 'DELETE' }).then(_ => location.href = '/?flash=trade-deleted')" type="button" class="btn btn-danger" id="confirmDeleteButton-{{.Pk}}">Ja, löschen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{end}}
     <div id="noResults" class="empty-state d-none">Keine Trades passen zur Suche.</div>
     {{ else }}
     <div class="empty-state my-4">
