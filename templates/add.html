@@ -268,32 +268,30 @@
                     get targetDistPct() {
                         return this.targetValid ? Math.abs(this.targetPrice - this.entryPrice) / this.entryPrice * 100 : 0;
                     },
-                    // Margin (Trade-Währung), die mindestens nötig wäre, damit der Stop bei
-                    // ≥ Ziel-Status greift: M ≥ Risiko / (1 − f × Stop/Entry) mit f = 50/(100−T).
-                    // Nenner ≤ 0 ⇒ per Margin nicht erreichbar (Infinity), z. B. tiefer Short-Stop.
-                    get reqMarginForStop() {
-                        if (!this.liqReady || !(this.stopLoss > 0) || this.riskAmount <= 0) return 0;
-                        const denom = 1 - this.targetFactor * this.stopLoss / this.entryPrice;
-                        return denom > 0 ? this.riskAmount / denom : Infinity;
+                    // Reservierte Margin am Stop (Trade-Währung) – Margin skaliert mit dem Kurs.
+                    get marginAtStopTrade() {
+                        if (!(this.entryPrice > 0) || !(this.stopLoss > 0)) return this.margin;
+                        return this.margin * this.stopLoss / this.entryPrice;
                     },
-                    // Greift der Stop-Loss vor dem Ziel-Status? Über die Margin beurteilt
-                    // (robust auch bei m = 1). null = nicht beurteilbar (kein Risiko / Daten fehlen).
+                    // Beitrag dieses Trades zur nötigen Mindest-Einzahlung: Risiko + f·Margin_am_Stop
+                    // (f = 50/(100−T)). Gelöst wird – wie in der Übersicht – nach dem EIGENKAPITAL
+                    // (Einzahlung) bei fest reservierter Margin, NICHT nach der Margin. Trade-Währung.
+                    get depositContribTrade() {
+                        if (!this.liqReady || !(this.stopLoss > 0)) return 0;
+                        // Risiko ≥ 0 (Stop im Gewinn = kein Verlust), Margin am Stop zählt trotzdem.
+                        return Math.max(0, this.riskAmount) + this.targetFactor * this.marginAtStopTrade;
+                    },
+                    // Derselbe Beitrag in Kontowährung (×fx) – matcht die Pro-Trade-Spalte der Übersicht.
+                    get depositContribAcct() { return this.depositContribTrade * this.fx; },
+                    // Greift der Stop-Loss vor dem Ziel-Status? Bei null freien Mitteln (Eigenkapital =
+                    // reservierte Margin) ist der Stop sicher ⇔ Margin ≥ Beitrag. null = nicht beurteilbar.
                     get stopBeforeLiq() {
                         if (!this.liqReady || !(this.stopLoss > 0) || this.riskAmount <= 0) return null;
-                        const r = this.reqMarginForStop;
-                        if (!isFinite(r)) return false;
-                        return this.margin >= r;
+                        return this.depositContribTrade <= this.margin;
                     },
-                    // Zusätzlich nötige Margin (Trade-Währung). 0 = Stop ist bereits sicher.
-                    get extraMarginNeeded() {
-                        const r = this.reqMarginForStop;
-                        if (!isFinite(r)) return r;
-                        return Math.max(0, r - this.margin);
-                    },
-                    // Margin-Puffer (Trade-Währung) über der nötigen Margin: > 0 = sicher.
-                    get marginBuffer() {
-                        if (!this.liqReady || this.riskAmount <= 0 || !isFinite(this.reqMarginForStop)) return 0;
-                        return this.margin - this.reqMarginForStop;
+                    // Zusätzlich nötiges freies Eigenkapital über der reservierten Margin (Kontowährung).
+                    get extraDepositAcct() {
+                        return Math.max(0, this.depositContribTrade - this.margin) * this.fx;
                     },
                     // Kursformat passend zur Größenordnung (Krypto vs. Aktien/Indizes).
                     fmtPrice(p) {
@@ -579,7 +577,7 @@
             </template>
         </div>
 
-        <!-- Liquidation (isoliert, nur Trade-Margin) & nötiger Margin-Puffer -->
+        <!-- Liquidation (isoliert, nur Trade-Margin) & Beitrag zur nötigen Einzahlung -->
         <div class="mt-2 p-2 border rounded-2"
              :class="liqValid && stopBeforeLiq === false ? 'border-danger' : 'border-secondary'"
              x-show="entryPrice > 0 && qtyEff > 0 && (traded === 'long' || traded === 'short')" x-cloak>
@@ -630,31 +628,21 @@
             <template x-if="liqValid && stopBeforeLiq === true">
                 <div class="mt-2 text-success">
                     &#10003; Dein Stop-Loss greift vor der <span x-text="marginTarget"></span>&nbsp;%-Schwelle.
-                    <template x-if="marginBuffer > 0">
-                        <span class="text-secondary">
-                            Margin-Puffer: <b x-text="marginBuffer.toFixed(2)"></b> über der nötigen
-                            Margin (<b x-text="reqMarginForStop.toFixed(2)"></b>, Trade-Währung).
-                        </span>
-                    </template>
+                    <span class="text-secondary">
+                        Beitrag zur nötigen Einzahlung: <b x-text="depositContribAcct.toFixed(2)"></b>&nbsp;&euro;
+                        &mdash; von der reservierten Margin gedeckt, kein zusätzliches Eigenkapital nötig.
+                    </span>
                 </div>
             </template>
             <template x-if="liqValid && stopBeforeLiq === false">
                 <div class="mt-2 text-danger">
                     &#9888; Achtung: Bei diesem Stop-Abstand fällt der Kontostatus <b>vor</b> deinem Stop-Loss
                     unter <span x-text="marginTarget"></span>&nbsp;%.
-                    <template x-if="isFinite(extraMarginNeeded)">
-                        <span>
-                            Du bräuchtest <b x-text="extraMarginNeeded.toFixed(2)"></b> zusätzliche Margin
-                            (nötige Margin gesamt: <b x-text="reqMarginForStop.toFixed(2)"></b>, Trade-Währung),
-                            damit der Stop zuerst greift &mdash; oder weniger Hebel bzw. engeren Stop wählen.
-                        </span>
-                    </template>
-                    <template x-if="!isFinite(extraMarginNeeded)">
-                        <span>
-                            Das ist allein über mehr Margin nicht erreichbar (der Stop liegt jenseits des
-                            maximal möglichen Schwellenkurses) &mdash; engeren Stop oder weniger Hebel wählen.
-                        </span>
-                    </template>
+                    <span>
+                        Beitrag zur nötigen Einzahlung: <b x-text="depositContribAcct.toFixed(2)"></b>&nbsp;&euro;,
+                        davon <b x-text="extraDepositAcct.toFixed(2)"></b>&nbsp;&euro; zusätzliches freies Eigenkapital
+                        über der reservierten Margin &mdash; oder weniger Hebel bzw. engeren Stop wählen.
+                    </span>
                 </div>
             </template>
         </div>
