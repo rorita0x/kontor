@@ -118,7 +118,7 @@
     <div class="mb-3 p-3 border rounded-2 {{if gt .marginBuffer.ExtraMargin 0.0}}border-warning{{else}}border-secondary{{end}}">
         <b>Margin-Puffer</b>
         <span class="meta-sm text-secondary">(Ziel: {{ printf "%.0f" .marginBuffer.TargetPct }}% Kontostatus &middot; <a href="/settings">ändern</a>)</span>
-        <div class="row g-3 mt-1">
+        <div class="row gap-3 mt-1">
             <div class="col-auto">
                 <span class="meta-sm text-secondary d-block">Reservierte Margin</span>
                 <b>{{ .marginBuffer.CurrentMargin }} &euro;</b>
