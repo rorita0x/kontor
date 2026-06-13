@@ -172,3 +172,57 @@ func TestF32TextRoundtrip(t *testing.T) {
 		t.Error("UnmarshalText sollte bei ungültigem Text einen Fehler liefern")
 	}
 }
+
+func TestComputeMarginBuffer(t *testing.T) {
+	// Long, Entry 100, Stop 95 (5 % Abstand), Stückzahl 100 → Risiko 500.
+	// Margin 1000 (z. B. Hebel 10 auf Notional 10000); am Stop 1000 × 0,95 = 950.
+	tr := Trade{
+		Symbol: "GOLD", Traded: TRADED_LONG, Result: RESULT_NOTFINISHED,
+		EntryPrice: 100, StopLoss: 95, Quantity: 100, Margin: 1000,
+	}
+
+	// Ziel 25 % → Faktor 50/75 = 0,6667. Beitrag = 500 + 0,6667·950 = 1133,33.
+	b25 := computeMarginBuffer([]Trade{tr}, 25)
+	if b25.OpenCount != 1 {
+		t.Fatalf("OpenCount: got %d, want 1", b25.OpenCount)
+	}
+	if !approx(b25.TotalRisk, 500) {
+		t.Errorf("TotalRisk: got %v, want 500", b25.TotalRisk)
+	}
+	if !approx(b25.TotalMarginStop, 950) {
+		t.Errorf("TotalMarginStop: got %v, want 950", b25.TotalMarginStop)
+	}
+	if !approx(b25.RequiredDeposit, 1133.33) {
+		t.Errorf("RequiredDeposit 25%%: got %v, want 1133.33", b25.RequiredDeposit)
+	}
+	if b25.FlooredByMargin {
+		t.Error("25%% sollte nicht von der Entry-Margin begrenzt sein")
+	}
+
+	// Ziel 45 % → Faktor 50/55 = 0,9091. Beitrag = 500 + 0,9091·950 = 1363,64.
+	b45 := computeMarginBuffer([]Trade{tr}, 45)
+	if !approx(b45.RequiredDeposit, 1363.64) {
+		t.Errorf("RequiredDeposit 45%%: got %v, want 1363.64", b45.RequiredDeposit)
+	}
+
+	// Entry-Margin als Untergrenze: kleines Risiko, große Margin.
+	// Stop 99 (1 %), Stückzahl 10 → Risiko 10; Margin 1000, am Stop 990.
+	// Ziel 25 %: 10 + 0,6667·990 = 670 < 1000 → Einzahlung = 1000, gefloored.
+	tiny := Trade{
+		Symbol: "TINY", Traded: TRADED_LONG, Result: RESULT_NOTFINISHED,
+		EntryPrice: 100, StopLoss: 99, Quantity: 10, Margin: 1000,
+	}
+	bFloor := computeMarginBuffer([]Trade{tiny}, 25)
+	if !bFloor.FlooredByMargin {
+		t.Error("erwartete Begrenzung durch Entry-Margin")
+	}
+	if !approx(bFloor.RequiredDeposit, 1000) {
+		t.Errorf("gefloorte Einzahlung: got %v, want 1000", bFloor.RequiredDeposit)
+	}
+
+	// Abgeschlossene Trades zählen nicht mit.
+	closed := Trade{Symbol: "X", Result: RESULT_WIN, EntryPrice: 100, StopLoss: 95, Quantity: 100, Margin: 1000}
+	if got := computeMarginBuffer([]Trade{closed}, 25); got.OpenCount != 0 {
+		t.Errorf("abgeschlossener Trade: OpenCount got %d, want 0", got.OpenCount)
+	}
+}

@@ -77,41 +77,38 @@ func effectiveMarginTarget(s Settings) F32 {
 	return s.MarginTargetPct
 }
 
-// computeMarginBuffer summiert über alle offenen Trades, wie viel Margin gebunden
-// ist und wie viel insgesamt nötig wäre, damit jeder Stop beim Ziel-Status greift.
-// m = Ziel/50 (25 %→0,5). Es zählt nur die Margin der Trades (isoliert) – wie auf
-// dem Konto, das nur die Margin der aktiven Trades vorhält.
-func computeMarginBuffer(trades []Trade, accountSize, targetPct F32) MarginBufferSummary {
-	m := float64(targetPct) / 50
+// computeMarginBuffer berechnet kontoweit (Cross-Margin) die empfohlene Mindest-
+// Einzahlung, damit der T212-Margin-Status auch dann über dem Ziel bleibt, wenn alle
+// offenen Stops gleichzeitig greifen. Faktor = 50/(100−Ziel) (25 %→0,667, 45 %→0,909,
+// 50 %→1,0). Jeder Trade trägt additiv Risk + Faktor·Margin_am_Stop bei; die Einzahlung
+// muss zusätzlich die aktuell reservierte Entry-Margin decken (Untergrenze).
+func computeMarginBuffer(trades []Trade, targetPct F32) MarginBufferSummary {
+	factor := 50 / (100 - float64(targetPct))
 	out := MarginBufferSummary{TargetPct: targetPct}
 	for _, t := range trades {
 		if t.Result != RESULT_NOTFINISHED {
 			continue
 		}
 		out.OpenCount++
-		cur := t.MarginAcct()
-		out.CurrentMargin += cur
-		req := t.ReqMarginAcct(m)
-		extra := t.ExtraMarginAcct(m)
+		risk := t.RiskLossAcct()
+		marginEntry := t.MarginAcct()
+		marginStop := t.MarginAtStopAcct()
+		contrib := risk + F32(factor*float64(marginStop))
 
-		if req < 0 { // Ziel-Status per Margin nicht erreichbar
-			out.RecommendedMargin += cur
-			out.Items = append(out.Items, MarginBufferItem{
-				Symbol: t.Symbol, Direction: t.Traded, CurrentMargin: cur, Unreachable: true,
-			})
-			continue
-		}
-		out.RecommendedMargin += cur + extra
-		out.ExtraMargin += extra
-		if extra > 0 {
-			out.Items = append(out.Items, MarginBufferItem{
-				Symbol: t.Symbol, Direction: t.Traded,
-				CurrentMargin: cur, ReqMargin: req, ExtraMargin: extra,
-			})
-		}
+		out.TotalRisk += risk
+		out.TotalMarginEntry += marginEntry
+		out.TotalMarginStop += marginStop
+		out.Items = append(out.Items, MarginBufferItem{
+			Symbol: t.Symbol, Direction: t.Traded,
+			Risk: risk, MarginEntry: marginEntry, MarginStop: marginStop, Contribution: contrib,
+		})
 	}
-	if accountSize > 0 {
-		out.ExtraPct = out.ExtraMargin / accountSize * 100
+	target := out.TotalRisk + F32(factor*float64(out.TotalMarginStop))
+	if out.TotalMarginEntry > target {
+		out.RequiredDeposit = out.TotalMarginEntry
+		out.FlooredByMargin = true
+	} else {
+		out.RequiredDeposit = target
 	}
 	sort.Slice(out.Items, func(i, j int) bool { return out.Items[i].Symbol < out.Items[j].Symbol })
 	return out
@@ -374,7 +371,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"symbolRisk":        computeSymbolRisk(trades, assets, settings.PerAssetRiskLimit, settings.AccountSize, classRisk),
 			"perAssetRiskLimit": settings.PerAssetRiskLimit,
 			"stats":             computeStats(trades, settings.AccountSize),
-			"marginBuffer":      computeMarginBuffer(trades, settings.AccountSize, marginTarget),
+			"marginBuffer":      computeMarginBuffer(trades, marginTarget),
 			"marginTargetPct":   marginTarget,
 			"accountSize":       settings.AccountSize,
 			"flash":             flash,
@@ -473,7 +470,7 @@ func CreateRoutes(db *storm.DB, r *gin.Engine) {
 			"symbolRisk":        computeSymbolRisk(trades, assets, settings.PerAssetRiskLimit, settings.AccountSize, classRisk),
 			"perAssetRiskLimit": settings.PerAssetRiskLimit,
 			"stats":             computeStats(filteredTrades, settings.AccountSize),
-			"marginBuffer":      computeMarginBuffer(filteredTrades, settings.AccountSize, marginTarget),
+			"marginBuffer":      computeMarginBuffer(filteredTrades, marginTarget),
 			"marginTargetPct":   marginTarget,
 			"accountSize":       settings.AccountSize,
 		})

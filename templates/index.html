@@ -114,53 +114,47 @@
     </div>
     {{end}}
 
-    {{if and .accountSize .marginBuffer.OpenCount}}
-    <div class="mb-3 p-3 border rounded-2 {{if gt .marginBuffer.ExtraMargin 0.0}}border-warning{{else}}border-secondary{{end}}">
+    {{if .marginBuffer.OpenCount}}
+    <div class="mb-3 p-3 border rounded-2 border-secondary">
         <b>Margin-Puffer</b>
         <span class="meta-sm text-secondary">(Ziel: {{ printf "%.0f" .marginBuffer.TargetPct }}% Kontostatus &middot; <a href="/settings">ändern</a>)</span>
         <div class="row gap-3 mt-1">
             <div class="col-auto">
-                <span class="meta-sm text-secondary d-block">Reservierte Margin</span>
-                <b>{{ .marginBuffer.CurrentMargin }} &euro;</b>
+                <span class="meta-sm text-secondary d-block">Empfohlene Mindest-Einzahlung</span>
+                <b class="fs-5">{{ .marginBuffer.RequiredDeposit }} &euro;</b>
             </div>
             <div class="col-auto">
-                <span class="meta-sm text-secondary d-block">Empfohlen gesamt</span>
-                <b>{{ .marginBuffer.RecommendedMargin }} &euro;</b>
+                <span class="meta-sm text-secondary d-block">Reservierte Margin (jetzt)</span>
+                <b>{{ .marginBuffer.TotalMarginEntry }} &euro;</b>
             </div>
             <div class="col-auto">
-                <span class="meta-sm text-secondary d-block">Davon Extra nötig</span>
-                <b class="{{if gt .marginBuffer.ExtraMargin 0.0}}text-danger{{else}}text-success{{end}}">{{ .marginBuffer.ExtraMargin }} &euro;</b>
-                <span class="meta-sm text-secondary">({{ .marginBuffer.ExtraPct }}% vom Konto)</span>
+                <span class="meta-sm text-secondary d-block">Risiko, wenn alle Stops greifen</span>
+                <b>{{ .marginBuffer.TotalRisk }} &euro;</b>
             </div>
         </div>
-        {{if .marginBuffer.Items}}
+        {{if .marginBuffer.FlooredByMargin}}
+        <div class="text-secondary meta-sm mt-2">Hier bindet die reservierte Margin selbst &mdash; die Stops greifen schon vor dem Ziel-Status.</div>
+        {{end}}
         <table class="table table-sm table-dark mt-2 mb-0">
             <thead>
-                <tr><th>Asset</th><th>Richtung</th><th>Reserviert &euro;</th><th>Nötig &euro;</th><th>Extra &euro;</th></tr>
+                <tr><th>Asset</th><th>Richtung</th><th>Risiko &euro;</th><th>Margin am Stop &euro;</th><th>Beitrag &euro;</th></tr>
             </thead>
             <tbody>
                 {{range .marginBuffer.Items}}
                 <tr>
                     <td>{{.Symbol}}</td>
                     <td>{{.Direction}}</td>
-                    {{if .Unreachable}}
-                    <td>{{.CurrentMargin}}</td>
-                    <td colspan="2" class="text-danger">per Margin nicht erreichbar &mdash; engeren Stop / weniger Hebel</td>
-                    {{else}}
-                    <td>{{.CurrentMargin}}</td>
-                    <td>{{.ReqMargin}}</td>
-                    <td class="text-danger">+{{.ExtraMargin}}</td>
-                    {{end}}
+                    <td>{{.Risk}}</td>
+                    <td>{{.MarginStop}}</td>
+                    <td>{{.Contribution}}</td>
                 </tr>
                 {{end}}
             </tbody>
         </table>
-        {{else}}
-        <div class="text-success meta-sm mt-2">&#10003; Alle offenen Trades sind beim Ziel-Status abgedeckt &mdash; keine zusätzliche Margin nötig.</div>
-        {{end}}
         <div class="form-text mt-2">
-            Konservative Pro-Trade-Summe (isoliert): so viel Margin solltest du insgesamt vorhalten, damit jeder Stop-Loss
-            beim Ziel-Status greift. Der Broker rechnet kontoweit (Cross-Margin) &mdash; ein Stop-out kann andere Positionen mitreißen.
+            Kontoweit (Cross-Margin): T212-Status = 100 &minus; 50&middot;Margin/Eigenkapital. So viel Eigenkapital solltest du insgesamt
+            vorhalten, damit der Status auch dann &uuml;ber {{ printf "%.0f" .marginBuffer.TargetPct }}% bleibt, wenn alle offenen Stops gleichzeitig greifen.
+            Die Margin ist kursabh&auml;ngig &mdash; gerechnet wird mit der Margin am Stop-Loss.
         </div>
     </div>
     {{end}}
